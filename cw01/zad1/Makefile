@@ -22,4 +22,4 @@ libfind.so:
 
 
 clean:
-	rm -f *.o *.a *.so 
+	rm -f *.o *.a *.so test_static test_shared

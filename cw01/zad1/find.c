@@ -26,6 +26,27 @@ typedef struct {
 
 static search_results results;
 
+// Defined below.
+void 
+_free_results_mem();
+
+int
+create_table(int size) {
+    if (size > 0) {
+        char ** tmp_blocks = (char **) calloc(size, sizeof(char *));
+        bool * tmp_taken = (bool *) calloc(size, sizeof(bool));
+
+        if (tmp_blocks != NULL && tmp_taken != NULL) {
+            _free_results_mem();
+            results.taken = tmp_taken;
+            results.blocks = tmp_blocks; 
+            return 0;
+        } 
+    }
+
+    return 1;
+}
+
 /* 
  * Function sets target value to source string and returns 0; 
  *
@@ -70,6 +91,39 @@ set_search_context(search_context_el context_element,
     return _set_str(target, context_element_value);
 }
 
+int
+run_search() {
+    // Check if context defined.
+    if (context.dir_name != NULL 
+        && context.file_name != NULL 
+        && context.tmp_file_name != NULL) {
+        char * cmd = sprintf();            
+    
+        // Open tmp file for writing.
+         
+        // Redirect stdout from subprocess to tmp file.
+        
+        // Close tmp file and subprocess pipe.
+    }
+
+    return 1;
+}
+
+// TODO:
+int  
+remove_tmp_file(char * tmp_file) {
+    return 0;
+}
+
+int free_block(int index) {
+    if (index >= 0 && index < results.count) {
+        free(*(results.blocks + index));
+        *(results.taken + index) = false;
+    }
+
+    return 1;
+}
+
 /*
  * Function frees search context memory.
  */
@@ -96,28 +150,8 @@ _free_results_mem() {
 
     free(results.blocks);
     results.blocks = NULL;
-}
 
-int
-create_table(int size) {
-    if (size > 0) {
-        char ** tmp_blocks = (char **) calloc(size, sizeof(char *));
-        bool * tmp_taken = (bool *) calloc(size, sizeof(bool));
-
-        if (tmp_blocks != NULL && tmp_taken != NULL) {
-            _free_results_mem();
-            results.taken = tmp_taken;
-            results.blocks = tmp_blocks; 
-            return 0;
-        } 
-    }
-
-    return 1;
-}
-
-int 
-remove_tmp_file(char * tmp_file) {
-    return 0;
+    results.count = 0;
 }
 
 void

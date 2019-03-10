@@ -13,16 +13,6 @@ typedef enum search_context_el {
     TMP_FILE    /* file for search results */
 } search_context_el;
 
-/* 
- * Function sets chosen search context element value and returns 0.
- *
- * If passed value is NULL or memory allocation fails,
- * previous value is retained and 1 is returned. 
- */
-int 
-set_search_context(search_context_el context_element, 
-                   char * context_element_value);
-
 /*
  * Function creates table of pointers to memory blocks containing
  * search results and returns 0;
@@ -34,13 +24,41 @@ set_search_context(search_context_el context_element,
 int 
 create_table(int size);
 
+/* 
+ * Function sets chosen search context element value and returns 0.
+ *
+ * If passed value is NULL or memory allocation fails,
+ * previous value is retained and 1 is returned. 
+ */
+int 
+set_search_context(search_context_el context_element, 
+                   char * context_element_value);
+
 /*
+ * Function searches according to predefined context (searches given
+ * directory for given filename and saves results to file of given 
+ * name) and returns 0.
+ *
+ * If any problem occurs during execution 1 is returned.
+ */
+int 
+run_search();
+
+/* TODO:
  * Function removes temporary file under given path and returns 0.
  *
  * If file is not found or permissions are insufficient 1 is returned.
  */
 int 
 remove_tmp_file(char * tmp_file);
+
+/*
+ * Function frees block of memory under given table index and returns 0.
+ *
+ * If index is out of table bounds, 1 is returned.
+ */
+int 
+free_block(int index);
 
 /*
  * Function frees all memory allocated by library functions.
