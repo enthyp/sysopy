@@ -4,13 +4,15 @@
 int 
 main(int argc, 
 	 char * argv[]) {
-	printf("%d\n", create_table(10000));
-	printf("%d\n", create_table(1000000));
-	free_all();
+	printf("%d\n", set_search_context(SEARCH_FILE, "dude.txt"));
+	printf("%d\n", set_search_context(SEARCH_DIR, "~/AGH/sysopy/"));
+	printf("%d\n", set_search_context(TMP_FILE, "~/AGH/sysopy/tempempe"));
 
-	printf("%d\n", set_search_context(SEARCH_FILE, "bob"));
-	printf("%d\n", set_search_context(SEARCH_FILE, "dog"));
-	printf("%d\n", set_search_context(4, "whatever"));
+	run_search();
+	create_table(1);	
+	int i = store_result("~/AGH/sysopy/tempempe");
+	printf("%d %d\n", i, free_block(i));	
 	free_all();	
+	
 	return 0;
 }

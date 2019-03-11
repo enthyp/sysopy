@@ -44,13 +44,16 @@ set_search_context(search_context_el context_element,
 int 
 run_search();
 
-/* TODO:
- * Function removes temporary file under given path and returns 0.
+/*
+ * Function stores contents of given temporary file in allocated
+ * table and returns table index. 
  *
- * If file is not found or permissions are insufficient 1 is returned.
+ * If memory allocation fails, no table indices are available 
+ * or given file could not be opened for whatever reason, 
+ * -1 is returned.
  */
 int 
-remove_tmp_file(char * tmp_file);
+store_result(char * tmp_file);
 
 /*
  * Function frees block of memory under given table index and returns 0.

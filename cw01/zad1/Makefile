@@ -5,17 +5,17 @@ all: test_static test_shared
 
 
 test_static: libfind.a test_find.o
-	$(CC) test_find.o -L. -lfind -o test_static
+	$(CC) -g test_find.o -L. -lfind -o test_static
 
 libfind.a:
 	make -f make_lib libfind.a
 
 test_find.o: test_find.c
-	$(CC) $(CFLAGS) test_find.c -o test_find.o
+	$(CC) $(CFLAGS) -g test_find.c -o test_find.o
 
 
 test_shared: libfind.so test_find.o
-	$(CC) test_find.o -L. -lfind -o test_shared	
+	$(CC) -g test_find.o -L. -lfind -o test_shared	
 	
 libfind.so:
 	make -f make_lib libfind.so
