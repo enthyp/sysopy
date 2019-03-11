@@ -18,7 +18,7 @@ test_shared: libfind.so test_find.o
 	$(CC) -g test_find.o -L. -lfind -o test_shared	
 	
 libfind.so:
-	make -f make_lib libfind.so
+	make -f lib.mk shared
 
 
 clean:
