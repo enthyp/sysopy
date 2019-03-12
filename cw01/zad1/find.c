@@ -222,14 +222,15 @@ _free_context_mem() {
  */
 void 
 _free_results_mem() {
-    free(results.taken);
-    results.taken = NULL;
-
     int i;
     char ** iter = results.blocks;
     for (i = 0; i < results.count; i++) {
-        free(*(iter + i));
+		if (results.taken[i])
+        	free(*(iter + i));
     }
+	
+	free(results.taken);
+    results.taken = NULL;
 
     free(results.blocks);
     results.blocks = NULL;

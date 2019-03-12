@@ -1,4 +1,3 @@
-#include "find.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -6,6 +5,7 @@
 #include <limits.h>
 #include <time.h>
 #include <sys/times.h>
+#include <dlfcn.h>
 
 
 /*
@@ -101,13 +101,69 @@ meas get_runtime(time_structs start) {
 	return result;
 }
 
+int (*create_table)(int);
+int (*set_search_context)(int, char *);
+int (*run_search)();
+int (*store_result)(char *);
+int (*free_block)(int);
+void (*free_all)();
 
+/*
+ * Function sets library function pointers and returns handle.
+ * If functions could not be loaded NULL is returned.
+ */
+void * 
+load_lib() {
+	void *handle = dlopen("lib-shared/libfind.so", RTLD_LAZY);
+	if (!handle) {
+		return NULL;	
+	}   
+	
+	create_table = dlsym(handle, "create_table");
+	if (dlerror() != NULL) {
+		dlclose(handle);
+		return NULL;
+	}
+	set_search_context = dlsym(handle, "set_search_context");
+	if (dlerror() != NULL) {
+		dlclose(handle);
+		return NULL;
+	}
+	run_search = dlsym(handle, "run_search");
+	if (dlerror() != NULL) {
+		dlclose(handle);
+		return NULL;
+	}
+	store_result = dlsym(handle, "store_result");
+	if (dlerror() != NULL) {
+		dlclose(handle);
+		return NULL;
+	}
+	free_block = dlsym(handle, "free_block");
+	if (dlerror() != NULL) {
+		dlclose(handle);
+		return NULL;
+	}
+	free_all = dlsym(handle, "free_all");
+	if (dlerror() != NULL) {
+		dlclose(handle);
+		return NULL;
+	}
+	
+	return handle;
+}
 
 int 
 main(int argc, 
 	 char * argv[]) {
 	if (argc == 1) {
 		return 0;
+	}
+
+	void * handle = load_lib();
+	if (handle == NULL) {
+		fprintf(stderr, "Could not load dynamic library.\n");
+		return 1;
 	}
 
 	int i;
@@ -131,9 +187,9 @@ main(int argc,
 			}
 			case SEARCH_DIRECTORY: {
 				printf("%-20s", "SEARCH_DIRECTORY: ");
-				set_search_context(SEARCH_DIR, argv[i + 1]);
-				set_search_context(SEARCH_FILE, argv[i + 2]);
-				set_search_context(TMP_FILE, argv[i + 3]);
+				set_search_context(0, argv[i + 1]);
+				set_search_context(1, argv[i + 2]);
+				set_search_context(2, argv[i + 3]);
 				
 				start = set_time();				
 				result = run_search();
@@ -191,7 +247,7 @@ main(int argc,
 	}
 
 	free_all();
-
+	dlclose(handle);
 	return 0;
 }
 
