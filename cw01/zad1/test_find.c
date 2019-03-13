@@ -109,6 +109,8 @@ main(int argc,
 	if (argc == 1) {
 		return 0;
 	}
+	
+	printf("\n%s\n", argv[0]);
 
 	int i;
 	

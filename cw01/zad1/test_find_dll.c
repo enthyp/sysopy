@@ -166,6 +166,8 @@ main(int argc,
 		return 1;
 	}
 
+	printf("\n%s\n", argv[0]);
+
 	int i;
 	
 	for (i = 1; i < argc; i++) {
