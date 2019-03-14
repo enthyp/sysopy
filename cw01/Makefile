@@ -52,7 +52,7 @@ run-static run-shared run-dynamic: run-%: % | grow_trees
 grow_trees: 
 	bash dir_tree.sh 3 6 dir file tree_small
 	bash dir_tree.sh 5 6 dir file tree_medium
-	bash dir_tree.sh 7 6 dir file tree_large
+	bash dir_tree.sh 5 6 dir file tree_large
 
 .PHONY: cut_down_trees
 cut_down_trees:
