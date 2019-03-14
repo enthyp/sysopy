@@ -92,7 +92,7 @@ meas get_runtime(time_structs start) {
 	
 	meas result;
 	result.real_time = end_ts.tv_sec - start_ts.tv_sec + 
-		(end_ts.tv_nsec - start_ts.tv_nsec) / 100000000.;
+		(end_ts.tv_nsec - start_ts.tv_nsec) / 1.0e9;
 	result.ucpu_time = (double)(end_tms.tms_cutime + end_tms.tms_utime - 
 		start_tms.tms_cutime - start_tms.tms_utime) / CLOCKS_PER_SEC;
 	result.scpu_time = (double)(end_tms.tms_cstime + end_tms.tms_stime - 

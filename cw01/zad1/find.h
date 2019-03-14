@@ -19,7 +19,7 @@ typedef enum search_context_el {
  * 
  * If a table has been allocated already, it is freed beforehand.
  * If memory allocation fails, however, previous values are 
- * retained and 1 is returned.
+ * retained and -1 is returned.
  */
 int 
 create_table(int size);
@@ -28,7 +28,7 @@ create_table(int size);
  * Function sets chosen search context element value and returns 0.
  *
  * If passed value is NULL or memory allocation fails,
- * previous value is retained and 1 is returned. 
+ * previous value is retained and -1 is returned. 
  */
 int 
 set_search_context(search_context_el context_element, 
@@ -39,7 +39,7 @@ set_search_context(search_context_el context_element,
  * directory for given filename and saves results to file of given 
  * name) and returns 0.
  *
- * If any problem occurs during execution 1 is returned.
+ * If any problem occurs during execution -1 is returned.
  */
 int 
 run_search();
@@ -58,7 +58,7 @@ store_result(char * tmp_file);
 /*
  * Function frees block of memory under given table index and returns 0.
  *
- * If index is out of table bounds, 1 is returned.
+ * If index is out of table bounds -1 is returned.
  */
 int 
 free_block(int index);

@@ -45,7 +45,8 @@ create_table(int size) {
         } 
     }
 
-    return 1;
+	fprintf(stderr, "create_table: failed to allocate memory!\n");
+    return -1;
 }
 
 /* 
@@ -63,12 +64,10 @@ _set_str(char ** target,
             free(*target);
             *target = tmp;
             return 0;
-        } else {
-            fprintf(stderr, "Memory allocation failure");
-        }
+        } 
     }
     
-    return 1;
+    return -1;
 }
 
 int 
@@ -86,10 +85,16 @@ set_search_context(search_context_el context_element,
             target = &context.tmp_file_name;
             break;
         default:
-            return 1;
+			fprintf(stderr, "set_search_context: incorrect argument!\n");
+            return -1;
     }
 
-    return _set_str(target, context_element_value);
+	
+    int return_code = _set_str(target, context_element_value);
+	if (return_code == -1) {
+		fprintf(stderr, "set_search_context: failed to allocate memory!\n");
+	}
+	return return_code;
 }
 
 int
@@ -109,10 +114,14 @@ run_search() {
 				context.file_name, context.tmp_file_name) > 0) {
 				return system(cmd);
 			}            
+		} else {
+			fprintf(stderr, "run_search: failed to allocate memory!\n");
 		}
-    }
+    } else {
+		fprintf(stderr, "run_search: set context elements first!\n");
+	}
 
-    return 1;
+    return -1;
 }
 
 /* Function returns first index available in results structure
@@ -150,7 +159,7 @@ _file_size(FILE * fp) {
 /* 
  * Function allocates memory for file content and returns 0.
  *
- * In case of any failure 1 is returned.
+ * In case of any failure -1 is returned.
  */
 int 
 _allocate_file(FILE * fp, char ** mem_block) {
@@ -165,7 +174,7 @@ _allocate_file(FILE * fp, char ** mem_block) {
 		}
 	}
 
-	return 1;
+	return -1;
 }
 
 int 
@@ -188,6 +197,10 @@ store_result(char * tmp_file) {
 				return -1;
 			}
 		}
+	} else if (fp == NULL) {
+		fprintf(stderr, "store_result: failed to open file!\n");
+	} else {
+		fprintf(stderr, "store_result: no more free table cells!\n");
 	}
 
 	if (fp != NULL) {
@@ -203,8 +216,9 @@ int free_block(int index) {
         *(results.taken + index) = false;
 		return 0;
     }
-
-    return 1;
+	
+	fprintf(stderr, "free_block: index out of bounds!\n");
+    return -1;
 }
 
 /*
