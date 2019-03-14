@@ -38,13 +38,15 @@ create_table(int size) {
 
         if (tmp_blocks != NULL && tmp_taken != NULL) {
             _free_results_mem();
-            results.taken = tmp_taken;
+            results.count = size;
+			results.taken = tmp_taken;
             results.blocks = tmp_blocks; 
             return 0;
         } 
     }
 
-    return 1;
+	fprintf(stderr, "create_table: failed to allocate memory!\n");
+    return -1;
 }
 
 /* 
@@ -62,12 +64,10 @@ _set_str(char ** target,
             free(*target);
             *target = tmp;
             return 0;
-        } else {
-            fprintf(stderr, "Memory allocation failure");
-        }
+        } 
     }
     
-    return 1;
+    return -1;
 }
 
 int 
@@ -85,10 +85,16 @@ set_search_context(search_context_el context_element,
             target = &context.tmp_file_name;
             break;
         default:
-            return 1;
+			fprintf(stderr, "set_search_context: incorrect argument!\n");
+            return -1;
     }
 
-    return _set_str(target, context_element_value);
+	
+    int return_code = _set_str(target, context_element_value);
+	if (return_code == -1) {
+		fprintf(stderr, "set_search_context: failed to allocate memory!\n");
+	}
+	return return_code;
 }
 
 int
@@ -97,31 +103,122 @@ run_search() {
     if (context.dir_name != NULL 
         && context.file_name != NULL 
         && context.tmp_file_name != NULL) {
-        char * cmd = sprintf();            
-    
-        // Open tmp file for writing.
-         
-        // Redirect stdout from subprocess to tmp file.
-        
-        // Close tmp file and subprocess pipe.
-    }
+		// Build command.
+		char * cmd = (char *) calloc(16 + strlen(context.dir_name) + 
+			strlen(context.file_name) + 
+			strlen(context.tmp_file_name), 
+			sizeof(char));
 
-    return 1;
+		if (cmd != NULL) {
+        	if (sprintf(cmd, "find %s -name %s > %s", context.dir_name,
+				context.file_name, context.tmp_file_name) > 0) {
+				return system(cmd);
+			}            
+		} else {
+			fprintf(stderr, "run_search: failed to allocate memory!\n");
+		}
+    } else {
+		fprintf(stderr, "run_search: set context elements first!\n");
+	}
+
+    return -1;
 }
 
-// TODO:
-int  
-remove_tmp_file(char * tmp_file) {
-    return 0;
+/* Function returns first index available in results structure
+ * or -1 if none are available.
+ *
+ * This is suboptimal obviously - linear insert, constant delete.
+ * Both could be logarithmic with a balanced tree structure... 
+ */
+int 
+_first_free() {
+	int i;
+	for (i = 0; i < results.count; i++)
+		if (!results.taken[i])
+			return i;
+
+	return -1;
+}
+
+/*
+ * Function returns file length in bytes given a non-NULL file 
+ * pointer or -1 in case of a failure to do so.
+ */
+long
+_file_size(FILE * fp) {
+	long fsize;
+	if (fseek(fp, 0, SEEK_END) == 0 
+		&& (fsize = ftell(fp)) >= 0
+		&& fseek(fp, 0, SEEK_SET) == 0) {
+		return fsize;
+	}
+
+	return -1L;
+}
+
+/* 
+ * Function allocates memory for file content and returns 0.
+ *
+ * In case of any failure -1 is returned.
+ */
+int 
+_allocate_file(FILE * fp, char ** mem_block) {
+	long fsize = _file_size(fp);
+	char * tmp_mem_block;	
+
+	if (fsize >= 0) {
+		tmp_mem_block = (char *) calloc(fsize, sizeof(char));
+		if (tmp_mem_block != NULL) {
+			*mem_block = tmp_mem_block;
+			return 0;
+		}
+	}
+
+	return -1;
+}
+
+int 
+store_result(char * tmp_file) {
+	int ind = _first_free();
+	FILE * fp = fopen(tmp_file, "r");
+
+	if (fp != NULL && ind >= 0) {
+		long fsize = 0L;
+		char * mem_block = NULL;		
+
+		if (_allocate_file(fp, &mem_block) == 0) {
+			if (fread(mem_block, 1, fsize, fp) == fsize 
+					&& fclose(fp) == 0) {
+				results.blocks[ind] = mem_block;
+				results.taken[ind] = true;
+				return ind;
+			} else {
+				free(mem_block);
+				return -1;
+			}
+		}
+	} else if (fp == NULL) {
+		fprintf(stderr, "store_result: failed to open file!\n");
+	} else {
+		fprintf(stderr, "store_result: no more free table cells!\n");
+	}
+
+	if (fp != NULL) {
+		fclose(fp);
+	}
+
+	return -1;	
 }
 
 int free_block(int index) {
     if (index >= 0 && index < results.count) {
         free(*(results.blocks + index));
         *(results.taken + index) = false;
+		return 0;
     }
-
-    return 1;
+	
+	fprintf(stderr, "free_block: index out of bounds!\n");
+    return -1;
 }
 
 /*
@@ -139,14 +236,15 @@ _free_context_mem() {
  */
 void 
 _free_results_mem() {
-    free(results.taken);
-    results.taken = NULL;
-
     int i;
     char ** iter = results.blocks;
     for (i = 0; i < results.count; i++) {
-        free(*(iter + i));
+		if (results.taken[i])
+        	free(*(iter + i));
     }
+	
+	free(results.taken);
+    results.taken = NULL;
 
     free(results.blocks);
     results.blocks = NULL;
