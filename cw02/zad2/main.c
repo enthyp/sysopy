@@ -105,9 +105,6 @@ int print_info_wrapper(const char *fpath, const struct stat *sb, int tflag, stru
 }
 
 int 
-walk_dir(char * path);
-
-int 
 walk_manual(char * path) {
 	struct stat sb;
 	if (lstat(path, &sb) == -1) {
@@ -115,33 +112,29 @@ walk_manual(char * path) {
 	}
 	
 	if ((sb.st_mode & S_IFMT) == S_IFDIR) {	
-		if (walk_dir(path) == -1) {
+		DIR * dir = opendir(path);
+		if (dir == NULL) {
 			return -1;
 		}
+	
+		struct dirent * entry;
+		char abs_path[PATH_MAX];
+		while ((entry = readdir(dir)) != NULL) {		
+			if (strcmp(entry -> d_name, ".") != 0 
+				&& strcmp(entry -> d_name, "..") != 0) {	
+				strcpy(abs_path, path);
+				strcat(abs_path, "/");
+				strcat(abs_path, entry -> d_name);
+				walk_manual(abs_path);
+			}	
+		}
+
+		closedir(dir);
 	}
 
 	return print_info(path, &sb);
 }
 
-int 
-walk_dir(char * path) {
-	DIR * dir = opendir(path);
-	if (dir == NULL) {
-		return -1;
-	}
-	
-	struct dirent * entry;
-	char abs_path[PATH_MAX];
-	while ((entry = readdir(dir)) != NULL) {		
-		if (strcmp(entry -> d_name, ".") != 0 
-			&& strcmp(entry -> d_name, "..") != 0
-			&& realpath(entry -> d_name, abs_path) != NULL) {
-			walk_manual(abs_path);
-		}
-	}
-
-	return closedir(dir);
-}
 
 int walk(char * path, ord_qualifier o, time_t time, char * type) {
 	ord = o;
