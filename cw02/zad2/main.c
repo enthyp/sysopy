@@ -54,12 +54,7 @@ is_cur_par(const char * path) {
 }
 
 int
-print_info(const char *fpath, const struct stat *sb, int tflag, struct FTW *ftwbuf) {
-	// TODO: make wrapper with is_cur_par for nftw, maybe on lower level we can get the name directly.
-	if (is_cur_par(fpath) == 1) {
-		return 0;
-	}
-
+print_info(const char *fpath, const struct stat *sb) {
 	double d = difftime(ref_date, sb -> st_mtime);
 	if (!(ord == LE && d < 0) && !(ord == EQ && d == 0) && !(ord == GR && d > 0)) {
 		return 0;
@@ -101,23 +96,31 @@ print_info(const char *fpath, const struct stat *sb, int tflag, struct FTW *ftwb
 	return 0;
 }
 
-int 
-walk_manual(char * path) {
-	if (is_cur_par(path) == 0) {
-		return -1;
+int print_info_wrapper(const char *fpath, const struct stat *sb, int tflag, struct FTW *ftwbuf) {
+	if (is_cur_par(fpath) == 1) {
+		return 0;
 	}
 
+	return print_info(fpath, sb);
+}
+
+int 
+walk_dir(char * path);
+
+int 
+walk_manual(char * path) {
 	struct stat sb;
 	if (lstat(path, &sb) == -1) {
 		return -1;
 	}
-
-	if (sb.st_mode & S_IFMT == S_IFDIR) {
-		if (walk_dir(path) == -1)
+	
+	if ((sb.st_mode & S_IFMT) == S_IFDIR) {	
+		if (walk_dir(path) == -1) {
 			return -1;
+		}
 	}
 
-	return print_info(path, &sb, 0, NULL);
+	return print_info(path, &sb);
 }
 
 int 
@@ -128,9 +131,13 @@ walk_dir(char * path) {
 	}
 	
 	struct dirent * entry;
-	while ((entry = readdir(dir)) != NULL) {
-		char abs_path[PATH_MAX];
-		walk_manual(realpath(entry.d_name, abs_path));
+	char abs_path[PATH_MAX];
+	while ((entry = readdir(dir)) != NULL) {		
+		if (strcmp(entry -> d_name, ".") != 0 
+			&& strcmp(entry -> d_name, "..") != 0
+			&& realpath(entry -> d_name, abs_path) != NULL) {
+			walk_manual(abs_path);
+		}
 	}
 
 	return closedir(dir);
@@ -141,11 +148,11 @@ int walk(char * path, ord_qualifier o, time_t time, char * type) {
 	ref_date = time;
 
 	if (strcmp(type, "nftw") == 0) {
-		return nftw(path, print_info, MAX_DIRS, FTW_PHYS);
+		return nftw(path, print_info_wrapper, MAX_DIRS, FTW_PHYS);
 	}
  
 	if (strcmp(type, "dir") == 0) {
-		return walk_dir(path, ref_date);
+		return walk_manual(path);
 	}
 	
 	fprintf(stderr, "Choose nftw or dir.\n");
