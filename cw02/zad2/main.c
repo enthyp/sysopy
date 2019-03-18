@@ -56,7 +56,7 @@ is_cur_par(const char * path) {
 int
 print_info(const char *fpath, const struct stat *sb) {
 	double d = difftime(ref_date, sb -> st_mtime);
-	if (!(ord == LE && d < 0) && !(ord == EQ && d == 0) && !(ord == GR && d > 0)) {
+	if (!(ord == LE && d > 60) && !(ord == EQ && d <= 60 && d >= -60) && !(ord == GR && d < -60)) {
 		return 0;
 	}
 
