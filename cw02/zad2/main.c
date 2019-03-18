@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <stdlib.h> // realpath
 #include <ftw.h>
+#include <dirent.h>
 #include <string.h>
 #include <time.h>
 #include <limits.h>
@@ -54,6 +55,7 @@ is_cur_par(const char * path) {
 
 int
 print_info(const char *fpath, const struct stat *sb, int tflag, struct FTW *ftwbuf) {
+	// TODO: make wrapper with is_cur_par for nftw, maybe on lower level we can get the name directly.
 	if (is_cur_par(fpath) == 1) {
 		return 0;
 	}
@@ -100,9 +102,38 @@ print_info(const char *fpath, const struct stat *sb, int tflag, struct FTW *ftwb
 }
 
 int 
-walk_dir(char * path, time_t ref_date) {
+walk_manual(char * path) {
+	if (is_cur_par(path) == 0) {
+		return -1;
+	}
+
+	struct stat sb;
+	if (lstat(path, &sb) == -1) {
+		return -1;
+	}
+
+	if (sb.st_mode & S_IFMT == S_IFDIR) {
+		if (walk_dir(path) == -1)
+			return -1;
+	}
+
+	return print_info(path, &sb, 0, NULL);
+}
+
+int 
+walk_dir(char * path) {
+	DIR * dir = opendir(path);
+	if (dir == NULL) {
+		return -1;
+	}
 	
-	return 0;
+	struct dirent * entry;
+	while ((entry = readdir(dir)) != NULL) {
+		char abs_path[PATH_MAX];
+		walk_manual(realpath(entry.d_name, abs_path));
+	}
+
+	return closedir(dir);
 }
 
 int walk(char * path, ord_qualifier o, time_t time, char * type) {
