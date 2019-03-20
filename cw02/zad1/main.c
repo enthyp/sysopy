@@ -5,6 +5,8 @@
 #include <stdlib.h> // strtol
 #include <errno.h>
 #include <limits.h>
+#include <time.h>
+#include <sys/times.h>
 
 // TODO: better error messages!
 
@@ -24,6 +26,30 @@ read_natural(char * string) {
 	}
 
 	return outcome;	
+}
+
+typedef struct meas {
+	double ucpu_time;
+	double scpu_time;
+} meas;
+
+struct tms set_time() {
+	struct tms result;
+	times(&result);
+
+	return result;
+}
+
+meas get_runtime(struct tms start_tms) {
+	struct tms end_tms = set_time();
+
+	meas result;
+	result.ucpu_time = (double)(end_tms.tms_cutime + end_tms.tms_utime - 
+		start_tms.tms_cutime - start_tms.tms_utime) / sysconf(_SC_CLK_TCK);
+	result.scpu_time = (double)(end_tms.tms_cstime + end_tms.tms_stime - 
+		start_tms.tms_cstime - start_tms.tms_stime) / sysconf(_SC_CLK_TCK);
+	
+	return result;
 }
 
 int 
@@ -283,9 +309,17 @@ main(int argc, char * argv[]) {
 			}
 
 			if (strcmp(argv[5], "lib") == 0) {
-				return sort_lib(argv[2], blocknum, blocklen);
+				struct tms start = set_time();
+				int result = sort_lib(argv[2], blocknum, blocklen);
+				meas times = get_runtime(start);
+				printf("User: %f, System: %f\n", times.ucpu_time, times.scpu_time);	
+				return result;
 			} else if (strcmp(argv[5], "sys") == 0) {
-				return sort_sys(argv[2], blocknum, blocklen);
+				struct tms start = set_time();
+				int result = sort_sys(argv[2], blocknum, blocklen);
+				meas times = get_runtime(start);
+				printf("User: %f, System: %f\n", times.ucpu_time, times.scpu_time);	
+				return result;
 			} else {
 				fprintf(stderr,"Unknown argument: choose sys or lib.\n");
 				return -1;
@@ -304,9 +338,17 @@ main(int argc, char * argv[]) {
 			}
 
 			if (strcmp(argv[6], "lib") == 0) {
-				return copy_lib(argv[2], argv[3], blocknum, blocklen);
+				struct tms start = set_time();
+				int result = copy_lib(argv[2], argv[3], blocknum, blocklen);
+				meas times = get_runtime(start);
+				printf("User: %f, System: %f\n", times.ucpu_time, times.scpu_time);	
+				return result;
 			} else if (strcmp(argv[6], "sys") == 0) {
-				return copy_sys(argv[2], argv[3], blocknum, blocklen);
+				struct tms start = set_time();
+				int result = copy_sys(argv[2], argv[3], blocknum, blocklen);
+				meas times = get_runtime(start);
+				printf("User: %f, System: %f\n", times.ucpu_time, times.scpu_time);	
+				return result;
 			} else {
 				fprintf(stderr,"Unknown argument: choose sys or lib.\n");
 				return -1;
