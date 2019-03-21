@@ -4,8 +4,6 @@ OBJ := $(SRC:%.c=%.o)
 TMP := dane
 OUT := wyniki.txt
 
-SHELL := /bin/bash
-
 CC := gcc
 CFLAGS := -Wall -g
 
@@ -17,7 +15,7 @@ test: $(TARGET)
 	@for i in 1 4 512 1024 4096 8192; do \
 		echo "Rozmiar bloku: $$i" >> $(OUT); \
 		for ratio in 1 2; do \
-			num_blocks=$$((ratio * 8192)); \
+			num_blocks=$$([[ $$i -lt  4096 ]] && echo "$$((ratio * 8192))" || echo "$$((ratio * 5000))"); \
 			echo "  Liczba bloków: $$num_blocks" >> $(OUT); \
 			./$(TARGET) generate $(TMP)lib $$num_blocks $$i; \
 			cp $(TMP)lib $(TMP)sys; \
@@ -41,6 +39,4 @@ $(TARGET): $(OBJ)
 
 .PHONY: clean
 clean: 
-	rm -f *.o $(TARGET) $(TMP)* $(OUT)
-
-# TODO: correct block numbers!
+	rm -f *.o $(TARGET) $(TMP)*
