@@ -10,7 +10,7 @@ all: $(TARGET)
 
 .PHONY: test
 test: $(TARGET)
-	./$(TARGET) . ">" 15-03-2019_10:00 dir; \
+	./$(TARGET) . ">" 15-03-2019_10:00 lib; \
 	#./$(TARGET) . ">" 15-03-2019_10:00 dir 
 
 $(TARGET): $(OBJ)
