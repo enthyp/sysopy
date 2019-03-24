@@ -57,8 +57,11 @@ walk_inner(char * path, char * rel_path) {
 				char * cmd = (char *) malloc((path_len + name_len + 6 + 2) * sizeof(char)); 
 				if (cmd == NULL) {
 					fprintf(stderr, "Failed to compose 'ls' command for %s\n", new_path);
-					free(new_path);
+					free(path);
 					free(rel_path);
+					free(new_path);
+					free(new_rel_path);
+					closedir(dir);
 					return -1;
 				}
 				
@@ -68,8 +71,11 @@ walk_inner(char * path, char * rel_path) {
 				if (system(cmd) != 0) {
 					fprintf(stderr, "Failed to call 'ls' for: %s\n", new_path);
 					free(cmd);
-					free(new_path);
+					free(path);
 					free(rel_path);
+					free(new_path);
+					free(new_rel_path);
+					closedir(dir);
 					return -1;
 				}	
 				free(cmd);
@@ -77,6 +83,7 @@ walk_inner(char * path, char * rel_path) {
 				int result = walk_inner(new_path, new_rel_path);
 				free(path);
 				free(rel_path);
+				closedir(dir);
 				return result;
 			} else {
 				wait(NULL);
