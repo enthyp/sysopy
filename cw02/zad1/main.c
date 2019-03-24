@@ -132,7 +132,7 @@ copy_sys(char * from, char * to, long blocknum, long blocklen) {
 
 	int to_fd;
 	int mode = S_IRWXU;
-	flags = O_WRONLY | O_CREAT; 
+	flags = O_WRONLY | O_CREAT | O_TRUNC; 
 	if ((to_fd = open(to, flags, mode)) == -1) {
 		perror(NULL);
 		close(from_fd);		
