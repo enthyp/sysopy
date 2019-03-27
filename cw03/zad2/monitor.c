@@ -6,19 +6,21 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <time.h>
+#include <limits.h>
 #include "reader/reader.h"
 
 #define DATE_LEN 20
-
+// Zbuduje  ci dom
 typedef enum mode {
 	MEM,
 	CP
 } mode;
 
 int
-timetos(const time_t * time, char * str_buffer) {
+timetos(const struct timespec * time, char * str_buffer) {
+	time_t secs = time.tv_sec;
 	struct tm * tm;
-	tm = localtime(time);
+	tm = localtime(secs);
 	if (tm == NULL) {
 		return -1;
 	}
@@ -27,9 +29,8 @@ timetos(const time_t * time, char * str_buffer) {
 	return (res < DATE_LEN-1) ? -1 : 0;
 }
 
-// TODO: make struct of first 3
-int 
-monitor_mem(char * name, char * path, long period, long monitime, int has_dupl) {
+long
+from_file(char * cache, char * path) {
 	FILE * fp;
 	if ((fp = fopen(path, "r")) == NULL) {
 		fprintf(stderr, "Failed to open file %s.\n", path);
@@ -37,12 +38,67 @@ monitor_mem(char * name, char * path, long period, long monitime, int has_dupl) 
 	}
 
 	// Jeez, check failure every f-in time?
-	fseek(fp, 0, SEEK_END);
-	long fsize = ftell(f);
-	fseek(f, 0, SEEK_SET);  
+	if (fseek(fp, 0, SEEK_END) == -1) {
+		fprintf(stderr, "Failed to seek in file %s.\n", path);
+		fclose(fp);
+		return -1;
+	}
+	long fsize;
+	if ((fsize = ftell(fp)) == -1) {
+		fprintf(stderr, "Failed to get offset in %s.\n", path);
+		fclose(fp);
+		return -1;
+	}
+
+	if (fseek(fp, 0, SEEK_SET) == -1) {
+		fprintf(stderr, "Failed to seek in file %s.\n", path);
+		fclose(fp);
+		return -1;
+	}
 	char * cache = malloc(fsize + 1);
-	fread(string, fsize, 1, f);
-	fclose(f);
+	if (cache == -1) {
+		fprintf(stderr, "Failed to alocate memory for file %s\n", path);
+		fclose(fp);
+		return -1;
+	}
+	if (fread(string, fsize, 1, fp) < fsize) {
+		fprintf(stderr, "Failed to read file %s to memory.\n", path);
+		free(cache);
+		fclose(fp);
+		return -1:
+	}
+	fclose(fp);
+	return fsize;
+}
+
+int 
+to_archive(char * name, char * content, long fsize) {
+	char arch_path[PATH_MAX];
+	strcpy(arch_path, "./archive/");
+	strcat(arch_path, name);
+	FILE * arch_fp;
+	if ((arch_fp = fopen(arch_path, "w")) == NULL) {
+		fprintf(stderr, "Failed to open copy of file %s.\n", arch_path);
+		return -1;
+	}
+	if (fwrite(content, 1, fsize, arch_fp) < fsize) {
+		fprintf(stderr, "Failed to save copy of file %s.\n", arch_path);
+		fclose(arch_fp);
+		return -1;
+	}
+	
+	fclose(arch_fp);
+	return 0;
+}
+
+// TODO: make struct of first 3
+int 
+monitor_mem(char * name, char * path, long period, long monitime, int has_dupl) {
+	char * cache;
+	long fsize = from_file(cache, path);
+	if (fsize < 0) {
+		return -1;
+	}
 
 	struct stat sb;
 	if (lstat(path, &sb) == -1) {
@@ -58,7 +114,8 @@ monitor_mem(char * name, char * path, long period, long monitime, int has_dupl) 
 
 	struct timespec mod_time = sb -> st_mtim;
 	long elapsed = 0;
-	while (elapsed < monitime) {
+	int count = 0;
+	while (elapsed <= monitime) {
 		sleep(period);
 		if (lstat(path, &sb) == -1) {
 			fprintf(stderr, "Failed to get stat for: %s.\n", path);
@@ -68,10 +125,17 @@ monitor_mem(char * name, char * path, long period, long monitime, int has_dupl) 
 
 		if (sb -> st_mtim != mod_time) {
 			mod_time = sb -> st_mtim;
-			FILE * arch_fp = fopen(strcat(), "w");
-			fwrite(cache, 1, fsize, arch_fp);
+			char * arch_name = (char *) malloc((strlen(name) + DATE_LEN + 1) * sizeof(char));
+			if (arch_name == NULL || to_archive(arch_name, cache, fsize) == -1) {
+				return -1;
+			}
+			free(arch_name);
+			count++;
 		}
+		elapsed += period;
 	}
+
+	return -count;
 }
 
 int 
