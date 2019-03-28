@@ -42,8 +42,8 @@ def main():
     try:
         args = parse_args()
         run(args)
-    except ParseError:
-        pass
+    except ParseError as e:
+        print(e)
 
 if __name__ == '__main__':
     main()
