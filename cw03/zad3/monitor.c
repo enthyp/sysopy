@@ -118,7 +118,7 @@ monitor_mem(char * name, char * path, double period, double monitime, int has_du
 	double elapsed = 0;
 	int count = 0;
 	while (elapsed <= monitime) {
-		nanosleep(sleep_dur);
+		nanosleep(&sleep_dur, NULL);
 		if (lstat(path, &sb) == -1) {
 			fprintf(stderr, "Failed to get stat for: %s.\n", name);
 			free(cache);
@@ -255,7 +255,7 @@ monitor_cp(char * name, char * path, double period, double monitime, int has_dup
 	double elapsed = 0;
 	int count = 0;
 	while (elapsed < monitime) {
-		nanosleep(sleep_dur);
+		nanosleep(&sleep_dur, NULL);
 		if (lstat(path, &sb) == -1) {
 			fprintf(stderr, "Failed to get stat for: %s.\n", name);
 			free(cur_name);	
