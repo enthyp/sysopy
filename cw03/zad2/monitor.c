@@ -99,14 +99,14 @@ monitor_mem(char * name, char * path, double period, double monitime, int has_du
 	char * cache = NULL;
 	long fsize = from_file(&cache, path);
 	if (fsize < 0) {
-		return 1;
+		return -1;
 	}
 
 	struct stat sb;
 	if (lstat(path, &sb) == -1) {
 		fprintf(stderr, "Failed to get stat for: %s.\n", name);
 		free(cache);
-		return 1;
+		return -1;
 	}
 
 	struct timespec mod_time = sb.st_mtim;
@@ -120,7 +120,7 @@ monitor_mem(char * name, char * path, double period, double monitime, int has_du
 		if (lstat(path, &sb) == -1) {
 			fprintf(stderr, "Failed to get stat for: %s.\n", name);
 			free(cache);
-			return 1;
+			return -1;
 		}
 
 		if (difftime(sb.st_mtim.tv_sec, mod_time.tv_sec) != 0) {
@@ -130,7 +130,7 @@ monitor_mem(char * name, char * path, double period, double monitime, int has_du
 			if (timetos(&mod_time, &mod_date) == -1) {
      	  		fprintf(stderr, "Failed to convert date for %s.\n", name);
 				free(arch_name);
-				return 1;
+				return -1;
 			}
 			
 			strcpy(arch_name, name);
@@ -140,7 +140,7 @@ monitor_mem(char * name, char * path, double period, double monitime, int has_du
 				arch_name = (char *) realloc(arch_name, name_len + 6);
 				if (arch_name == NULL) {
 					fprintf(stderr, "Failed to allocate file name memory.\n");
-					return 1;
+					return -1;
 				}
 				char pid[5];
 				sprintf(pid, "%d", getpid());
@@ -153,7 +153,7 @@ monitor_mem(char * name, char * path, double period, double monitime, int has_du
 				if (arch_name != NULL) {
 					free(arch_name);
 				}
-				return 1;
+				return -1;
 			}
 			free(arch_name);
 			count++;
@@ -162,7 +162,7 @@ monitor_mem(char * name, char * path, double period, double monitime, int has_du
 			if (fsize < 0) {
 				fprintf(stderr, "Failed to store new version of %s.\n", name);
 				free(cache);
-				return 1;
+				return -1;
 			}
 			mod_time = sb.st_mtim;
 		}
@@ -171,7 +171,7 @@ monitor_mem(char * name, char * path, double period, double monitime, int has_du
 	}
 	
 	free(cache);
-	return -count;
+	return count;
 }
 
 int
@@ -219,32 +219,32 @@ monitor_cp(char * name, char * path, double period, double monitime, int has_dup
 	struct stat sb;
 	if (lstat(path, &sb) == -1) {
 		fprintf(stderr, "Failed to get stat for: %s.\n", name);
-		return 1;
+		return -1;
 	}
 
 	struct timespec mod_time = sb.st_mtim;
 	char * cur_name = NULL;
 	if (get_file_name(&cur_name, name, mod_time, has_dupl) == -1) {
-		return 1;
+		return -1;
 	}
 
 	pid_t pid;
 	if ((pid = fork()) < 0) {
 		fprintf(stderr, "Failed to fork copy process for %s.\n ", name);
 		free(cur_name);
-		return 1;
+		return -1;
 	} else if (pid == 0) {
 		if (execlp("cp", "cp", path, cur_name, NULL) == -1) {
 			fprintf(stderr, "Failed to make a copy of %s.\n", name);
 			free(cur_name);
-			return 1;
+			return -1;
 		}
 	}
 
 	if (wait(NULL) == -1) {
 		fprintf(stderr, "Copying process failure.\n");
 		free(cur_name);
-		return 1;
+		return -1;
 	}
 
 	struct timespec sleep_dur; 
@@ -257,32 +257,32 @@ monitor_cp(char * name, char * path, double period, double monitime, int has_dup
 		if (lstat(path, &sb) == -1) {
 			fprintf(stderr, "Failed to get stat for: %s.\n", name);
 			free(cur_name);	
-			return 1;
+			return -1;
 		}
 
 		if (difftime(sb.st_mtim.tv_sec, mod_time.tv_sec) != 0) {
 			mod_time = sb.st_mtim;
 			if (get_file_name(&cur_name, name, mod_time, has_dupl) == -1) {
 				free(cur_name);
-				return 1;
+				return -1;
 			}
 
 			if ((pid = fork()) < 0) {
 				fprintf(stderr, "Failed to fork copy process for %s.\n ", name);
 				free(cur_name);
-				return 1;
+				return -1;
 			} else if (pid == 0) {
 				if (execlp("cp", "cp", path, cur_name, NULL) == -1) {
 					fprintf(stderr, "Failed to make a copy of %s.\n", name);
 					free(cur_name);
-					return 1;
+					return -1;
 				}
 			}
 			
 			if (wait(NULL) == -1) {
 				fprintf(stderr, "Copying process failure.\n");
 				free(cur_name);
-				return 1;
+				return -1;
 			}
 		
 			count++;
@@ -294,11 +294,11 @@ monitor_cp(char * name, char * path, double period, double monitime, int has_dup
 	if (remove(cur_name) != 0) {
 		fprintf(stderr, "Failed to remove tmp file copy.\n");
 		free(cur_name);
-		return 1;
+		return -1;
 	}
 	
 	free(cur_name);
-	return -count;
+	return count;
 }
 
 int
@@ -343,15 +343,15 @@ monitor_inner(flist * list, double monitime, mode mode) {
 			int result;
 			switch (mode) {
 				case MEM: 
-					result = -monitor_mem(list -> name[i], list -> path[i], list -> period[i], monitime, has_dupl[i]); break;
+					result = monitor_mem(list -> name[i], list -> path[i], list -> period[i], monitime, has_dupl[i]); break;
 				case CP: 
-					result = -monitor_cp(list -> name[i], list -> path[i], list -> period[i], monitime, has_dupl[i]); break;
+					result = monitor_cp(list -> name[i], list -> path[i], list -> period[i], monitime, has_dupl[i]); break;
 				default: break;
 			}
 			free_flist(list);
 			free(children);
 			free(has_dupl);
-			return result;
+			return -result;
 		} else {
 			children[i] = pid;
 		}
@@ -361,8 +361,8 @@ monitor_inner(flist * list, double monitime, mode mode) {
 		int statloc;
 		if (waitpid(children[i], &statloc, 0) == -1) {
 			fprintf(stderr, "Error waiting for child process.\n");
-		} else if (WIFEXITED(statloc) && WEXITSTATUS(statloc) != 255) {
-			printf("Proces %d utworzył %d kopii pliku %s.\n", children[i], WEXITSTATUS(statloc), list -> name[i]);
+		} else if (WIFEXITED(statloc) && WEXITSTATUS(statloc) != 1) {
+			printf("Proces %d utworzył %d kopii pliku %s.\n", children[i], (256 - WEXITSTATUS(statloc)) % 256, list -> name[i]);
 		} else {
 			printf("Proces %d: wystąpił błąd.\n", children[i]);
 		}
