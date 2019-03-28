@@ -95,7 +95,7 @@ to_archive(char * name, char * content, long fsize) {
 
 // TODO: make struct of first 3
 int 
-monitor_mem(char * name, char * path, long period, long monitime, int has_dupl) {
+monitor_mem(char * name, char * path, double period, double monitime, int has_dupl) {
 	char * cache = NULL;
 	long fsize = from_file(&cache, path);
 	if (fsize < 0) {
@@ -110,7 +110,7 @@ monitor_mem(char * name, char * path, long period, long monitime, int has_dupl) 
 	}
 
 	struct timespec mod_time = sb.st_mtim;
-	long elapsed = 0;
+	double elapsed = 0;
 	int count = 0;
 	while (elapsed <= monitime) {
 		sleep(period);
@@ -203,14 +203,16 @@ get_file_name(char ** buffer, char * name, struct timespec mod_time, int has_dup
 		strcat(tmp_buffer, pid);
 	}
 
-	free(*buffer);
+	if (*buffer != NULL) { 
+		free(*buffer);
+	}
 	*buffer = tmp_buffer;
 
 	return 0;
 }
 
 int 
-monitor_cp(char * name, char * path, long period, long monitime, int has_dupl) {
+monitor_cp(char * name, char * path, double period, double monitime, int has_dupl) {
 	struct stat sb;
 	if (lstat(path, &sb) == -1) {
 		fprintf(stderr, "Failed to get stat for: %s.\n", name);
@@ -218,7 +220,7 @@ monitor_cp(char * name, char * path, long period, long monitime, int has_dupl) {
 	}
 
 	struct timespec mod_time = sb.st_mtim;
-	char * cur_name;
+	char * cur_name = NULL;
 	if (get_file_name(&cur_name, name, mod_time, has_dupl) == -1) {
 		return 1;
 	}
@@ -242,9 +244,9 @@ monitor_cp(char * name, char * path, long period, long monitime, int has_dupl) {
 		return 1;
 	}
 
-	long elapsed = 0;
+	double elapsed = 0;
 	int count = 0;
-	while (elapsed <= monitime) {
+	while (elapsed < monitime) {
 		sleep(period);
 		if (lstat(path, &sb) == -1) {
 			fprintf(stderr, "Failed to get stat for: %s.\n", name);
@@ -294,7 +296,7 @@ monitor_cp(char * name, char * path, long period, long monitime, int has_dupl) {
 }
 
 int
-monitor_inner(flist * list, long monitime, mode mode) {
+monitor_inner(flist * list, double monitime, mode mode) {
 	// To name files properly (with PID).
 	int * has_dupl = (int *) calloc(list -> size, sizeof(int));	
 	pid_t * children = (pid_t *) malloc(list -> size * sizeof(pid_t));
@@ -367,7 +369,7 @@ monitor_inner(flist * list, long monitime, mode mode) {
 }
 
 int 
-monitor(flist * list, long monitime, char * mode) {
+monitor(flist * list, double monitime, char * mode) {
 	if (strcmp(mode, "mem") == 0) { 
 		return monitor_inner(list, monitime, MEM);
 	} else if (strcmp(mode, "cp") == 0) {
@@ -385,9 +387,10 @@ main(int argc, char * argv[]) {
 		return -1;
 	}
 
-	long monitime;
-	if ((monitime = read_natural(argv[2])) < 0) {
-		fprintf(stderr, "Pass correct monitoring time.\n");
+	char * rem = NULL;
+	double monitime = strtod(argv[2], &rem);
+	if (monitime == 0.0 && strcmp(rem, "") != 0) {
+		fprintf(stderr, "Pass correct time value.\n");
 		return -1;
 	}
 

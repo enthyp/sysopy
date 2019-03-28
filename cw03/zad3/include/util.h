@@ -4,7 +4,7 @@ typedef struct file_list {
 	int size;
 	char ** name;
 	char ** path;
-	long * period;
+	double * period;
 } flist;
 
 long read_natural(char * string);

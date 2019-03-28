@@ -5,19 +5,13 @@
 #include <limits.h>
 #include "util.h"
 
-long 
-read_natural(char * string) {
-	char *endp;
-	long outcome = strtol(string, &endp, 10);
-
-	if (endp == string) {
-		return -1L;
-	}
-	if ((outcome == LONG_MAX || outcome == LONG_MIN) && errno == ERANGE) {
-		return -1L;
-	}
-	if (*endp != '\0') {
-		return -1L;
+double 
+read_double(char * string) {
+	char * rem = NULL;
+	double outcome = strtod(string, &rem);
+	if ((outcome == 0.0) 
+		|| errno == ERANGE) {	
+		return -1;
 	}
 
 	return outcome;	
@@ -40,7 +34,7 @@ void print_flist(flist * fl) {
 	for (i = 0; i < fl -> size; i++) {
 		printf("Name: %s\n", fl -> name[i]);
 		printf("Path: %s\n", fl -> path[i]);
-		printf("Period: %ld\n", fl -> period[i]);
+		printf("Period: %e\n", fl -> period[i]);
 	}
 }
 
@@ -62,7 +56,7 @@ get_flist(char * list_path) {
 
 	result.name = (char **) malloc(no_lines * sizeof(char *)); 
 	result.path = (char **) malloc(no_lines * sizeof(char *)); 
-	result.period = (long *) malloc(no_lines * sizeof(long));
+	result.period = (double *) malloc(no_lines * sizeof(double));
 	if (rewind == -1 || result.name == NULL || result.path == NULL || result.period == NULL) {
 		if (result.name != NULL) free(result.name);
 		if (result.path != NULL) free(result.path);
@@ -107,14 +101,15 @@ get_flist(char * list_path) {
 		} else if (token != NULL) {
 			result.name[i] = tokens[0];
 			result.path[i] = tokens[1];
-			result.period[i] = read_natural(tokens[2]);
+			result.period[i] = read_double(tokens[2]);
 
 			if (result.period[i] < 0) { 
-				fprintf(stderr, "Incorrect period format.\n");
+				fprintf(stderr, "Incorrect period.\n");
 				for (k = 0; k < 3; k++) { free(tokens[k]); }
 				i--;
+			} else {
+				free(tokens[2]);
 			}
-			free(tokens[2]);	 
 		}
 
 		i++;
@@ -130,7 +125,7 @@ get_flist(char * list_path) {
 	if (i < no_lines) {
 		result.name = (char **) realloc(result.name, i * sizeof(char *));
 		result.path = (char **) realloc(result.path, i * sizeof(char *));
-		result.period = (long *) realloc(result.period, i * sizeof(long));
+		result.period = (double *) realloc(result.period, i * sizeof(double));
 	}
 
 	free(line);
