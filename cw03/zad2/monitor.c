@@ -121,16 +121,15 @@ monitor_mem(char * name, char * path, long period, long monitime, int has_dupl) 
 		}
 
 		if (difftime(sb.st_mtim.tv_sec, mod_time.tv_sec) != 0) {
-			mod_time = sb.st_mtim;
 			int name_len = strlen(name) + DATE_LEN + 2; 
 			char * arch_name = (char *) malloc(name_len * sizeof(char));
 			char mod_date[DATE_LEN];
 			if (timetos(&mod_time, &mod_date) == -1) {
      	  		fprintf(stderr, "Failed to convert date for %s.\n", name);
 				free(arch_name);
-				break;
+				return 1;
 			}
-	
+			
 			strcpy(arch_name, name);
 			strcat(arch_name, "_");
 			strcat(arch_name, mod_date);
@@ -138,7 +137,7 @@ monitor_mem(char * name, char * path, long period, long monitime, int has_dupl) 
 				arch_name = (char *) realloc(arch_name, name_len + 6);
 				if (arch_name == NULL) {
 					fprintf(stderr, "Failed to allocate file name memory.\n");
-					break;
+					return 1;
 				}
 				char pid[5];
 				sprintf(pid, "%d", getpid());
@@ -151,7 +150,7 @@ monitor_mem(char * name, char * path, long period, long monitime, int has_dupl) 
 				if (arch_name != NULL) {
 					free(arch_name);
 				}
-				break;
+				return 1;
 			}
 			free(arch_name);
 			count++;
@@ -162,6 +161,7 @@ monitor_mem(char * name, char * path, long period, long monitime, int has_dupl) 
 				free(cache);
 				return 1;
 			}
+			mod_time = sb.st_mtim;
 		}
 
 		elapsed += period;
@@ -171,9 +171,126 @@ monitor_mem(char * name, char * path, long period, long monitime, int has_dupl) 
 	return -count;
 }
 
+int
+get_file_name(char ** buffer, char * name, struct timespec mod_time, int has_dupl) {
+	int name_len = strlen(name) + strlen("./archive/") + DATE_LEN + 2; 
+	char * tmp_buffer = (char *) malloc(name_len * sizeof(char));
+	if (tmp_buffer == NULL) {
+		fprintf(stderr, "Failed to allocate memory for file name: %s.\n", name);
+		return -1;
+	}
+
+	char mod_date[DATE_LEN];
+	if (timetos(&mod_time, &mod_date) == -1) {
+		fprintf(stderr, "Failed to convert date for %s.\n", name);
+		free(tmp_buffer);
+		return -1;
+	}
+
+	strcpy(tmp_buffer, "./archive/");
+	strcat(tmp_buffer, name);
+	strcat(tmp_buffer, "_");
+	strcat(tmp_buffer, mod_date);
+	if (has_dupl == 1) {
+		tmp_buffer = (char *) realloc(tmp_buffer, name_len + 6);
+		if (tmp_buffer == NULL) {
+			fprintf(stderr, "Failed to allocate file name memory.\n");
+			return -1;
+		}
+		char pid[5];
+		sprintf(pid, "%d", getpid());
+		strcat(tmp_buffer, "_");
+		strcat(tmp_buffer, pid);
+	}
+
+	free(*buffer);
+	*buffer = tmp_buffer;
+
+	return 0;
+}
+
 int 
 monitor_cp(char * name, char * path, long period, long monitime, int has_dupl) {
-	return 0;
+	struct stat sb;
+	if (lstat(path, &sb) == -1) {
+		fprintf(stderr, "Failed to get stat for: %s.\n", name);
+		return 1;
+	}
+
+	struct timespec mod_time = sb.st_mtim;
+	char * cur_name;
+	if (get_file_name(&cur_name, name, mod_time, has_dupl) == -1) {
+		return 1;
+	}
+
+	pid_t pid;
+	if ((pid = fork()) < 0) {
+		fprintf(stderr, "Failed to fork copy process for %s.\n ", name);
+		free(cur_name);
+		return 1;
+	} else if (pid == 0) {
+		if (execlp("cp", "cp", path, cur_name, NULL) == -1) {
+			fprintf(stderr, "Failed to make a copy of %s.\n", name);
+			free(cur_name);
+			return 1;
+		}
+	}
+
+	if (wait(NULL) == -1) {
+		fprintf(stderr, "Copying process failure.\n");
+		free(cur_name);
+		return 1;
+	}
+
+	long elapsed = 0;
+	int count = 0;
+	while (elapsed <= monitime) {
+		sleep(period);
+		if (lstat(path, &sb) == -1) {
+			fprintf(stderr, "Failed to get stat for: %s.\n", name);
+			free(cur_name);	
+			return 1;
+		}
+
+		if (difftime(sb.st_mtim.tv_sec, mod_time.tv_sec) != 0) {
+			mod_time = sb.st_mtim;
+			if (get_file_name(&cur_name, name, mod_time, has_dupl) == -1) {
+				free(cur_name);
+				return 1;
+			}
+
+			if ((pid = fork()) < 0) {
+				fprintf(stderr, "Failed to fork copy process for %s.\n ", name);
+				free(cur_name);
+				return 1;
+			} else if (pid == 0) {
+				if (execlp("cp", "cp", path, cur_name, NULL) == -1) {
+					fprintf(stderr, "Failed to make a copy of %s.\n", name);
+					free(cur_name);
+					return 1;
+				}
+			}
+			
+			if (wait(NULL) == -1) {
+				fprintf(stderr, "Copying process failure.\n");
+				free(cur_name);
+				return 1;
+			}
+			
+			count++;
+		}
+		
+		elapsed += period;
+	}
+	
+	if (remove(cur_name) != 0) {
+		fprintf(stderr, "Failed to remove tmp file copy.\n");
+		free(cur_name);
+		return 1;
+	}
+	
+	free(cur_name);
+	return -count;
 }
 
 int
