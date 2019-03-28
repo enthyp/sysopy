@@ -8,6 +8,7 @@
 #include <time.h>
 #include <limits.h>
 #include <errno.h>
+#include <sys/resource.h>
 #include "util.h"
 
 #define DATE_LEN 20
@@ -294,7 +295,7 @@ monitor_cp(char * name, char * path, long period, long monitime, int has_dupl) {
 }
 
 int
-monitor_inner(flist * list, long monitime, mode mode) {
+monitor_inner(flist * list, long monitime, long cpu_lim, long virt_lim, mode mode) {
 	// To name files properly (with PID).
 	int * has_dupl = (int *) calloc(list -> size, sizeof(int));	
 	pid_t * children = (pid_t *) malloc(list -> size * sizeof(pid_t));
@@ -332,6 +333,25 @@ monitor_inner(flist * list, long monitime, mode mode) {
 			proc_count--;
 			fprintf(stderr, "Failed to fork child process for %s.\n ", list -> name[i]);
 		} else if (pid == 0) {
+			struct rlimit lims;
+			lims.rlim_cur = lims.rlim_max = cpu_lim;
+			if (setrlimit(RLIMIT_CPU, &lims) != 0) {
+				fprintf(stderr, "Failed to set CPU limit.\n");
+				free_flist(list);
+				free(children);
+				free(has_dupl);
+				return -1;
+			}
+			
+			lims.rlim_cur = lims.rlim_max = virt_lim * 1024 * 1024;
+			if (setrlimit(RLIMIT_AS, &lims) != 0) {
+				fprintf(stderr, "Failed to set virtual memory limit.\n");
+				free_flist(list);
+				free(children);
+				free(has_dupl);
+				return -1;
+			}	
+
 			int result;
 			switch (mode) {
 				case MEM: 
@@ -349,14 +369,23 @@ monitor_inner(flist * list, long monitime, mode mode) {
 		}
 	}
 	
+	struct rusage usage;
+	// TODO: timediffs 
 	for (i = 0; i < proc_count; i++) {
 		int statloc;
 		if (waitpid(children[i], &statloc, 0) == -1) {
 			fprintf(stderr, "Error waiting for child process.\n");
 		} else if (WIFEXITED(statloc) && WEXITSTATUS(statloc) != 255) {
 			printf("Proces %d utworzył %d kopii pliku %s.\n", children[i], WEXITSTATUS(statloc), list -> name[i]);
+			if (getrusage(RUSAGE_CHILDREN, &usage) != 0) {
+				fprintf(stderr, "Failed to get resource stats.\n");
+				continue;
+			}
+		
+		printf("User time: %ld.%06ld\n", usage.ru_utime.tv_sec, usage.ru_utime.tv_usec);	
+		printf("System time: %ld.%06ld\n", usage.ru_stime.tv_sec, usage.ru_stime.tv_usec);	
 		} else {
-			printf("Proces %d: wystąpił błąd.\n", children[i]);
+			fprintf(stderr, "Process %d: error occured.\n", children[i]);
 		}
 	}
 	
@@ -367,11 +396,11 @@ monitor_inner(flist * list, long monitime, mode mode) {
 }
 
 int 
-monitor(flist * list, long monitime, char * mode) {
+monitor(flist * list, long monitime, long cpu_lim, long virt_lim, char * mode) {
 	if (strcmp(mode, "mem") == 0) { 
-		return monitor_inner(list, monitime, MEM);
+		return monitor_inner(list, monitime, cpu_lim, virt_lim, MEM);
 	} else if (strcmp(mode, "cp") == 0) {
-		return monitor_inner(list, monitime, CP);
+		return monitor_inner(list, monitime, cpu_lim, virt_lim, CP);
 	} else {
 		fprintf(stderr, "Pass mem or cp as mode.\n");
 		return -1;
@@ -380,8 +409,8 @@ monitor(flist * list, long monitime, char * mode) {
 
 int 
 main(int argc, char * argv[]) {
-	if (argc != 4) {
-		fprintf(stderr, "Pass 4 arguments exactly.\n");
+	if (argc != 6) {
+		fprintf(stderr, "Pass 6 arguments exactly.\n");
 		return -1;
 	}
 
@@ -391,11 +420,21 @@ main(int argc, char * argv[]) {
 		return -1;
 	}
 
+	long cpu_lim;
+	if ((cpu_lim = read_natural(argv[4])) < 0) {
+		fprintf(stderr, "Pass correct cpu time limit.\n");
+		return -1;
+	}
+	long virt_mem_lim;
+	if ((virt_mem_lim = read_natural(argv[5])) < 0) {
+		fprintf(stderr, "Pass correct virtual memory limit.\n");
+		return -1;
+	}
 	flist list = get_flist(argv[1]);
 	if (list.size < 0) {
 		return -1;
 	}
 	
-	return monitor(&list, monitime, argv[3]);
+	return monitor(&list, monitime, cpu_lim, virt_mem_lim, argv[3]);
 }
 
