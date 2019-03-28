@@ -112,10 +112,13 @@ monitor_mem(char * name, char * path, double period, double monitime, int has_du
 	}
 
 	struct timespec mod_time = sb.st_mtim;
+	struct timespec sleep_dur; 
+	sleep_dur.tv_sec = (long)period;
+	sleep_dur.tv_nsec = (time_t)((period - (long)period) * 1.0e9);
 	double elapsed = 0;
 	int count = 0;
 	while (elapsed <= monitime) {
-		sleep(period);
+		nanosleep(sleep_dur);
 		if (lstat(path, &sb) == -1) {
 			fprintf(stderr, "Failed to get stat for: %s.\n", name);
 			free(cache);
@@ -245,11 +248,14 @@ monitor_cp(char * name, char * path, double period, double monitime, int has_dup
 		free(cur_name);
 		return 1;
 	}
-
+	
+	struct timespec sleep_dur; 
+	sleep_dur.tv_sec = (long)period;
+	sleep_dur.tv_nsec = (time_t)((period - (long)period) * 1.0e9);
 	double elapsed = 0;
 	int count = 0;
 	while (elapsed < monitime) {
-		sleep(period);
+		nanosleep(sleep_dur);
 		if (lstat(path, &sb) == -1) {
 			fprintf(stderr, "Failed to get stat for: %s.\n", name);
 			free(cur_name);	
