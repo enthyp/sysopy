@@ -395,7 +395,7 @@ main(int argc, char * argv[]) {
 
 	char * rem = NULL;
 	double monitime = strtod(argv[2], &rem);
-	if (monitime == 0.0 && strcmp(rem, "") != 0) {
+	if (strcmp(rem, "") != 0 || monitime == 0.0) {
 		fprintf(stderr, "Pass correct time value.\n");
 		return -1;
 	}

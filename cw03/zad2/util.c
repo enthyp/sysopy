@@ -9,7 +9,7 @@ double
 read_double(char * string) {
 	char * rem = NULL;
 	double outcome = strtod(string, &rem);
-	if ((outcome == 0.0) 
+	if ((outcome == 0.0 || strcmp(rem, "") != 0) 
 		|| errno == ERANGE) {
 		return -1;
 	}

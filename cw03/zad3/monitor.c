@@ -429,17 +429,17 @@ main(int argc, char * argv[]) {
 
 	char * rem = NULL;
 	double monitime = strtod(argv[2], &rem);
-	if (monitime == 0.0 && strcmp(rem, "") != 0) {
+	if (strcmp(rem, "") != 0 || monitime == 0.0) {
 		fprintf(stderr, "Pass correct time value.\n");
 		return -1;
 	}
 	double cpu_lim = strtod(argv[4], &rem);
-	if (cpu_lim == 0.0 && strcmp(rem, "") != 0) {
+	if (strcmp(rem, "") != 0 || cpu_lim == 0.0) {
 		fprintf(stderr, "Pass correct CPU time limit.\n");
 		return -1;
 	}
 	double virt_mem_lim = strtod(argv[5], &rem);
-	if (virt_mem_lim == 0.0 && strcmp(rem, "") != 0) {
+	if (strcmp(rem, "") != 0 || virt_mem_lim == 0.0) {
 		fprintf(stderr, "Pass correct virtual memory limit.\n");
 		return -1;
 	}	
