@@ -7,10 +7,11 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <limits.h>
-#include "reader/reader.h"
+#include <errno.h>
+#include "util.h"
 
 #define DATE_LEN 20
-// Zbuduje  ci dom
+
 typedef enum mode {
 	MEM,
 	CP
@@ -18,9 +19,9 @@ typedef enum mode {
 
 int
 timetos(const struct timespec * time, char * str_buffer) {
-	time_t secs = time.tv_sec;
+	time_t secs = time -> tv_sec;
 	struct tm * tm;
-	tm = localtime(secs);
+	tm = localtime(&secs);
 	if (tm == NULL) {
 		return -1;
 	}
@@ -37,7 +38,6 @@ from_file(char * cache, char * path) {
 		return -1;
 	}
 
-	// Jeez, check failure every f-in time?
 	if (fseek(fp, 0, SEEK_END) == -1) {
 		fprintf(stderr, "Failed to seek in file %s.\n", path);
 		fclose(fp);
@@ -55,17 +55,17 @@ from_file(char * cache, char * path) {
 		fclose(fp);
 		return -1;
 	}
-	char * cache = malloc(fsize + 1);
-	if (cache == -1) {
+	cache = (char *) malloc(fsize + 1);
+	if (cache == NULL) {
 		fprintf(stderr, "Failed to alocate memory for file %s\n", path);
 		fclose(fp);
 		return -1;
 	}
-	if (fread(string, fsize, 1, fp) < fsize) {
+	if (fread(cache, fsize, 1, fp) < fsize) {
 		fprintf(stderr, "Failed to read file %s to memory.\n", path);
 		free(cache);
 		fclose(fp);
-		return -1:
+		return -1;
 	}
 	fclose(fp);
 	return fsize;
@@ -94,7 +94,7 @@ to_archive(char * name, char * content, long fsize) {
 // TODO: make struct of first 3
 int 
 monitor_mem(char * name, char * path, long period, long monitime, int has_dupl) {
-	char * cache;
+	char * cache = NULL;
 	long fsize = from_file(cache, path);
 	if (fsize < 0) {
 		return -1;
@@ -112,7 +112,7 @@ monitor_mem(char * name, char * path, long period, long monitime, int has_dupl) 
 //        printf("Last access: failed to convert.\n");
 //	}
 
-	struct timespec mod_time = sb -> st_mtim;
+	struct timespec mod_time = sb.st_mtim;
 	long elapsed = 0;
 	int count = 0;
 	while (elapsed <= monitime) {
@@ -123,8 +123,8 @@ monitor_mem(char * name, char * path, long period, long monitime, int has_dupl) 
 			return -1;
 		}
 
-		if (sb -> st_mtim != mod_time) {
-			mod_time = sb -> st_mtim;
+		if (difftime(sb.st_mtim.tv_sec, mod_time.tv_sec) != 0) {
+			mod_time = sb.st_mtim;
 			char * arch_name = (char *) malloc((strlen(name) + DATE_LEN + 1) * sizeof(char));
 			if (arch_name == NULL || to_archive(arch_name, cache, fsize) == -1) {
 				return -1;
@@ -166,7 +166,7 @@ monitor_inner(flist * list, long monitime, mode mode) {
 		}
 	}
 
-	if (mkdir("./archive", S_IRWXU) == -1) {
+	if (mkdir("./archive", S_IRWXU) == -1 && errno != EEXIST) {
 		fprintf(stderr, "Failed to create archive directory.\n");
 		free(has_dupl);
 		free_flist(list);

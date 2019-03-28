@@ -3,7 +3,7 @@
 #include <string.h>
 #include <errno.h>
 #include <limits.h>
-#include "reader.h"
+#include "util.h"
 
 long 
 read_natural(char * string) {

@@ -1,18 +1,12 @@
 TARGET := monitor
-SRC := $(TARGET).c
-OBJ := $(SRC:%.c=%.o)
 
-LDIR := reader
-LIB := $(LDIR)/lib$(LDIR).so
+SRC := $(wildcard *.c)
+BUILD_DIR := ./build
+INCL_DIR := ./include
+OBJ := $(SRC:%.c=$(BUILD_DIR)/%.o)
+DEPS := $(wildcard $(INCL_DIR)/*.h)
 
-CC := gcc
-CFLAGS := -Wall -g
-
-AR := ar
-ARFLAGS := rcs
-
-LDLIBS := -l$(LDIR)
-LDFLAGS := -L$(LDIR)
+CFLAGS := -Wall -g 
 
 
 .PHONY: all
@@ -22,22 +16,19 @@ all: $(TARGET)
 test: $(TARGET)
 	@./$(TARGET) .
 
-$(TARGET): $(OBJ) $(LIB)
-	$(CC) $(CFLAGS) $< $(LDFLAGS) $(LDLIBS) -o $@
+$(TARGET): $(OBJ) 
+	$(CC) $(CFLAGS) $^ -o $@
 
-%.o: CFLAGS += -c
-%.o: %.c
-	$(CC) $(CFLAGS) $^ -o $@ 
+$(OBJ): CFLAGS += -I$(INCL_DIR) 
+$(OBJ): CFLAGS += -c
+$(OBJ): $(BUILD_DIR)/%.o: %.c $(DEPS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $< -o $@
 
-$(LIB): $(LDIR)/*.o
-	$(AR) $(ARFLAGS) $@ $^	
-
-$(LDIR)/%.o: CFLAGS += -c
-$(LDIR)/%.o: $(LDIR)/%.c $(LDIR)/%.h
-	$(CC) $(CFLAGS) $< -o $@ 
+$(BUILD_DIR):
+	@mkdir -p $@
 
 
 .PHONY: clean
 clean: 
-	rm -f $(OBJ) $(LDIR)/*.{o,so} $(TARGET)
+	@rm -rf $(BUILD_DIR) $(TARGET) archive
 
