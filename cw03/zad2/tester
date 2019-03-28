@@ -1,0 +1,50 @@
+#!/usr/bin/env python
+import os
+import string
+import time
+import datetime as dt
+import random
+import argparse
+
+class ParseError(Exception):
+    pass
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('file')
+    parser.add_argument('pmin', type=int)
+    parser.add_argument('pmax', type=int)
+    parser.add_argument('bytes', type=int)
+    args = parser.parse_args()
+
+    if args.pmin > args.pmax or args.pmin < 0:
+        raise ParseError('pmin must not exceed pmax')
+    if args.bytes < 0:
+        raise ParseError('bytes must not be negative')
+    return args
+
+def run(args):
+    try:
+        while True:
+            sec = random.randint(args.pmin, args.pmax)
+            date = dt.datetime.now()
+            pid = os.getpid()
+            rnd = ''.join(random.choices(string.ascii_letters, k=args.bytes))
+            line = 'PID: {} Sec: {}, {:%Y-%m-%d_%H-%M-%S}, {}\n'.format(pid, sec, date, rnd)
+            with open(args.file, 'a') as target:
+                target.write(line)
+                print('Written...')
+            time.sleep(sec)
+    except KeyboardInterrupt:
+        print('Done')
+
+def main():
+    try:
+        args = parse_args()
+        run(args)
+    except ParseError:
+        pass
+
+if __name__ == '__main__':
+    main()
+
