@@ -18,7 +18,7 @@ typedef enum mode {
 } mode;
 
 int
-timetos(const struct timespec * time, char * str_buffer) {
+timetos(const struct timespec * time, char (* str_buffer)[DATE_LEN]) {
 	time_t secs = time -> tv_sec;
 	struct tm * tm;
 	tm = localtime(&secs);
@@ -26,12 +26,12 @@ timetos(const struct timespec * time, char * str_buffer) {
 		return -1;
 	}
 	
-	size_t res = strftime(str_buffer, DATE_LEN, "%F_%H-%M-%S", tm);
+	size_t res = strftime(*str_buffer, DATE_LEN, "%F_%H-%M-%S", tm);
 	return (res < DATE_LEN-1) ? -1 : 0;
 }
 
 long
-from_file(char * cache, char * path) {
+from_file(char ** cache, char * path) {
 	FILE * fp;
 	if ((fp = fopen(path, "r")) == NULL) {
 		fprintf(stderr, "Failed to open file %s.\n", path);
@@ -55,18 +55,20 @@ from_file(char * cache, char * path) {
 		fclose(fp);
 		return -1;
 	}
-	cache = (char *) malloc(fsize + 1);
-	if (cache == NULL) {
+	char * tmp_cache = (char *) malloc(fsize + 1);
+	if (tmp_cache == NULL) {
 		fprintf(stderr, "Failed to alocate memory for file %s\n", path);
 		fclose(fp);
 		return -1;
 	}
-	if (fread(cache, fsize, 1, fp) < fsize) {
+	if (fread(tmp_cache, 1, fsize, fp) < fsize) {
 		fprintf(stderr, "Failed to read file %s to memory.\n", path);
-		free(cache);
+		free(tmp_cache);
 		fclose(fp);
 		return -1;
 	}
+	free(*cache);
+	*cache = tmp_cache;
 	fclose(fp);
 	return fsize;
 }
@@ -95,22 +97,17 @@ to_archive(char * name, char * content, long fsize) {
 int 
 monitor_mem(char * name, char * path, long period, long monitime, int has_dupl) {
 	char * cache = NULL;
-	long fsize = from_file(cache, path);
+	long fsize = from_file(&cache, path);
 	if (fsize < 0) {
 		return -1;
 	}
 
 	struct stat sb;
 	if (lstat(path, &sb) == -1) {
-		fprintf(stderr, "Failed to get stat for: %s.\n", path);
+		fprintf(stderr, "Failed to get stat for: %s.\n", name);
 		free(cache);
 		return -1;
 	}
-
-//	mod_date[DATE_LEN];
-//	if (timetos(&(sb -> st_mtime), mod_date) == -1) {
-//        printf("Last access: failed to convert.\n");
-//	}
 
 	struct timespec mod_time = sb.st_mtim;
 	long elapsed = 0;
@@ -118,23 +115,59 @@ monitor_mem(char * name, char * path, long period, long monitime, int has_dupl) 
 	while (elapsed <= monitime) {
 		sleep(period);
 		if (lstat(path, &sb) == -1) {
-			fprintf(stderr, "Failed to get stat for: %s.\n", path);
+			fprintf(stderr, "Failed to get stat for: %s.\n", name);
 			free(cache);
 			return -1;
 		}
 
 		if (difftime(sb.st_mtim.tv_sec, mod_time.tv_sec) != 0) {
 			mod_time = sb.st_mtim;
-			char * arch_name = (char *) malloc((strlen(name) + DATE_LEN + 1) * sizeof(char));
+			int name_len = strlen(name) + DATE_LEN + 1; 
+			char * arch_name = (char *) malloc(name_len * sizeof(char));
+			char mod_date[DATE_LEN];
+			if (timetos(&mod_time, &mod_date) == -1) {
+     	  		fprintf(stderr, "Failed to convert date for %s.\n", name);
+				free(arch_name);
+				break;
+			}
+	
+			strcpy(arch_name, name);
+			strcat(arch_name, "_");
+			strcat(arch_name, mod_date);
+			if (has_dupl == 1) {
+				arch_name = (char *) realloc(arch_name, name_len + 6);
+				if (arch_name == NULL) {
+					fprintf(stderr, "Failed to allocate file name memory.\n");
+					break;
+				}
+				char pid[5];
+				sprintf(pid, "%d", getpid());
+				strcat(arch_name, "_");
+				strcat(arch_name, pid);
+			}
+
 			if (arch_name == NULL || to_archive(arch_name, cache, fsize) == -1) {
-				return -1;
+				fprintf(stderr, "Failed to archive file.\n");
+				if (arch_name != NULL) {
+					free(arch_name);
+				}
+				break;
 			}
 			free(arch_name);
 			count++;
+			fsize = from_file(&cache, path);
+			
+			if (fsize < 0) {
+				fprintf(stderr, "Failed to store new version of %s.\n", name);
+				free(cache);
+				return -1;
+			}
 		}
+
 		elapsed += period;
 	}
-
+	
+	free(cache);
 	return -count;
 }
 
@@ -151,7 +184,8 @@ monitor_inner(flist * list, long monitime, mode mode) {
 	if (has_dupl == NULL || children == NULL) {
 		if (has_dupl != NULL) free(has_dupl);
 		if (children != NULL) free(children);
-		fprintf(stderr, "Failed to alocate memory.\n");
+		free_flist(list);
+		fprintf(stderr, "Failed to allocate memory.\n");
 		return -1;
 	}
 	int i, j;
@@ -169,6 +203,7 @@ monitor_inner(flist * list, long monitime, mode mode) {
 	if (mkdir("./archive", S_IRWXU) == -1 && errno != EEXIST) {
 		fprintf(stderr, "Failed to create archive directory.\n");
 		free(has_dupl);
+		free(children);
 		free_flist(list);
 		return -1;
 	}
@@ -183,13 +218,13 @@ monitor_inner(flist * list, long monitime, mode mode) {
 			int result;
 			switch (mode) {
 				case MEM: 
-					result = monitor_mem(list -> name[i], list -> path[i], list -> period[i], monitime, has_dupl[i]); 
+					result = -monitor_mem(list -> name[i], list -> path[i], list -> period[i], monitime, has_dupl[i]); break;
 				case CP: 
-					result = monitor_cp(list -> name[i], list -> path[i], list -> period[i], monitime, has_dupl[i]);
+					result = -monitor_cp(list -> name[i], list -> path[i], list -> period[i], monitime, has_dupl[i]); break;
 				default: break;
 			}
-		
 			free_flist(list);
+			free(children);
 			free(has_dupl);
 			return result;
 		} else {
@@ -201,14 +236,15 @@ monitor_inner(flist * list, long monitime, mode mode) {
 		int statloc;
 		if (waitpid(children[i], &statloc, 0) == -1) {
 			fprintf(stderr, "Error waiting for child process.\n");
-		} else if (statloc >= 0) {
-			printf("Proces %d utworzył %d kopii pliku %s.\n", children[i], statloc, list -> name[i]);
+		} else if (WIFEXITED(statloc)) {
+			printf("Proces %d utworzył %d kopii pliku %s.\n", children[i], WEXITSTATUS(statloc), list -> name[i]);
 		} else {
 			printf("Proces %d: wystąpił błąd.\n", children[i]);
 		}
 	}
 	
 	free(has_dupl);
+	free(children);
 	free_flist(list);
 	return 0;
 }
