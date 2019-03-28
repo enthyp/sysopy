@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <time.h>
+#include <sys/time.h>
 #include <limits.h>
 #include <errno.h>
 #include <sys/resource.h>
@@ -229,7 +230,8 @@ monitor_cp(char * name, char * path, long period, long monitime, int has_dupl) {
 		fprintf(stderr, "Failed to fork copy process for %s.\n ", name);
 		free(cur_name);
 		return 1;
-	} else if (pid == 0) {
+	} else if (pid == 0) { 
+		printf("%s %s\n", path, cur_name);
 		if (execlp("cp", "cp", path, cur_name, NULL) == -1) {
 			fprintf(stderr, "Failed to make a copy of %s.\n", name);
 			free(cur_name);
@@ -370,7 +372,8 @@ monitor_inner(flist * list, long monitime, long cpu_lim, long virt_lim, mode mod
 	}
 	
 	struct rusage usage;
-	// TODO: timediffs 
+	struct timeval prev_utime = {0, 0}, prev_stime = {0, 0};
+	struct timeval cur_utime, cur_stime;
 	for (i = 0; i < proc_count; i++) {
 		int statloc;
 		if (waitpid(children[i], &statloc, 0) == -1) {
@@ -381,9 +384,12 @@ monitor_inner(flist * list, long monitime, long cpu_lim, long virt_lim, mode mod
 				fprintf(stderr, "Failed to get resource stats.\n");
 				continue;
 			}
-		
-		printf("User time: %ld.%06ld\n", usage.ru_utime.tv_sec, usage.ru_utime.tv_usec);	
-		printf("System time: %ld.%06ld\n", usage.ru_stime.tv_sec, usage.ru_stime.tv_usec);	
+			timersub(&usage.ru_utime, &prev_utime, &cur_utime);
+			timersub(&usage.ru_stime, &prev_stime, &cur_stime);
+			printf("User time: %ld.%06ld\n", cur_utime.tv_sec, cur_utime.tv_usec);	
+			printf("System time: %ld.%06ld\n", cur_stime.tv_sec, cur_stime.tv_usec);
+			prev_utime = usage.ru_utime;
+			prev_stime = usage.ru_stime;
 		} else {
 			fprintf(stderr, "Process %d: error occured.\n", children[i]);
 		}
