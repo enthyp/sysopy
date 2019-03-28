@@ -44,7 +44,8 @@ void print_flist(flist * fl) {
 	}
 }
 
-flist get_flist(char * list_path) {
+flist 
+get_flist(char * list_path) {
 	flist result; 
 	result.size = -1;
 
@@ -110,11 +111,10 @@ flist get_flist(char * list_path) {
 
 			if (result.period[i] < 0) { 
 				fprintf(stderr, "Incorrect period format.\n");
-				for (k = 0; k < j; k++) { 
-					free(tokens[k]); 
-				}
+				for (k = 0; k < 3; k++) { free(tokens[k]); }
 				i--;
-			}	 
+			}
+			free(tokens[2]);	 
 		}
 
 		i++;
@@ -137,3 +137,4 @@ flist get_flist(char * list_path) {
 	fclose(fp);
 	return result;
 }
+

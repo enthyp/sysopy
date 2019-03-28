@@ -57,7 +57,7 @@ from_file(char ** cache, char * path) {
 	}
 	char * tmp_cache = (char *) malloc(fsize + 1);
 	if (tmp_cache == NULL) {
-		fprintf(stderr, "Failed to alocate memory for file %s\n", path);
+		fprintf(stderr, "Failed to allocate memory for file %s\n", path);
 		fclose(fp);
 		return -1;
 	}
@@ -99,14 +99,14 @@ monitor_mem(char * name, char * path, long period, long monitime, int has_dupl) 
 	char * cache = NULL;
 	long fsize = from_file(&cache, path);
 	if (fsize < 0) {
-		return -1;
+		return 1;
 	}
 
 	struct stat sb;
 	if (lstat(path, &sb) == -1) {
 		fprintf(stderr, "Failed to get stat for: %s.\n", name);
 		free(cache);
-		return -1;
+		return 1;
 	}
 
 	struct timespec mod_time = sb.st_mtim;
@@ -117,12 +117,12 @@ monitor_mem(char * name, char * path, long period, long monitime, int has_dupl) 
 		if (lstat(path, &sb) == -1) {
 			fprintf(stderr, "Failed to get stat for: %s.\n", name);
 			free(cache);
-			return -1;
+			return 1;
 		}
 
 		if (difftime(sb.st_mtim.tv_sec, mod_time.tv_sec) != 0) {
 			mod_time = sb.st_mtim;
-			int name_len = strlen(name) + DATE_LEN + 1; 
+			int name_len = strlen(name) + DATE_LEN + 2; 
 			char * arch_name = (char *) malloc(name_len * sizeof(char));
 			char mod_date[DATE_LEN];
 			if (timetos(&mod_time, &mod_date) == -1) {
@@ -146,7 +146,7 @@ monitor_mem(char * name, char * path, long period, long monitime, int has_dupl) 
 				strcat(arch_name, pid);
 			}
 
-			if (arch_name == NULL || to_archive(arch_name, cache, fsize) == -1) {
+			if (to_archive(arch_name, cache, fsize) == -1) {
 				fprintf(stderr, "Failed to archive file.\n");
 				if (arch_name != NULL) {
 					free(arch_name);
@@ -160,7 +160,7 @@ monitor_mem(char * name, char * path, long period, long monitime, int has_dupl) 
 			if (fsize < 0) {
 				fprintf(stderr, "Failed to store new version of %s.\n", name);
 				free(cache);
-				return -1;
+				return 1;
 			}
 		}
 
@@ -279,7 +279,7 @@ main(int argc, char * argv[]) {
 		return -1;
 	}
 
-	//print_flist(&list);	
+	print_flist(&list);	
 	
 	return monitor(&list, monitime, argv[3]);
 }
