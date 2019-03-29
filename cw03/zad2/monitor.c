@@ -93,7 +93,7 @@ to_archive(char * name, char * content, long fsize) {
 	return 0;
 }
 
-// TODO: make struct of first 3
+//// TODO: make struct of first 3
 int 
 monitor_mem(char * name, char * path, double period, double monitime, int has_dupl) {
 	char * cache = NULL;
