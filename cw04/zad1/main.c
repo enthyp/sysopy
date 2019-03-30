@@ -54,9 +54,55 @@ run() {
 	}
 }
 
+int child_pid = -1;
+
+void
+fork_sub() {
+	if ((child_pid = fork()) < 0) {
+		fprintf(stderr, "Failed to fork subprocess.\n");
+		exit(-1);
+	} else if (child_pid == 0) {
+		if (execlp("./date_loop.sh", "./date_loop.sh", NULL) == -1) {
+			fprintf(stderr, "Failed to run the loop in subprocess.\n");
+			exit(-1);
+		}
+	}
+}
+
+void
+handle_SIGTSTP_sub(int signum){
+	show = 1 - show;
+	if (!show) {
+		printf("%s\n", wait_msg);
+		kill(child_pid, SIGKILL);
+	} else {
+		fork_sub();
+	}	
+};
+
+void
+handle_SIGINT_sub(int signum) {
+	printf("%s\n", sigint_msg);
+	if (child_pid != -1) {
+		kill(child_pid, SIGKILL);
+	}
+	exit(0);
+}
+
 void
 run_subprocess() {
-	exit(0);
+	signal(SIGTSTP, handle_SIGTSTP_sub);
+
+	struct sigaction act;
+	act.sa_handler = handle_SIGINT_sub;
+	sigemptyset(&act.sa_mask);
+	act.sa_flags = 0;
+	sigaction(SIGINT, &act, NULL);
+
+	fork_sub();
+	while (1) {
+		sleep(1);
+	}
 }
 
 int

@@ -1,3 +1,5 @@
+#!/bin/bash
+
 while true; do
     DATE=`date '+%Y-%m-%d %H:%M:%S'`;
     echo $DATE;

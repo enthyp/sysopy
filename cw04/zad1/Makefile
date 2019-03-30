@@ -8,8 +8,8 @@ CFLAGS := -Wall -g
 .PHONY: all
 all: $(TARGET)
 
-$(TARGET): $(OBJ)
-	$(CC) $(CFLAGS) $^ -o $@
+$(TARGET): $(OBJ) date_loop.sh
+	$(CC) $(CFLAGS) $< -o $@
 
 .PHONY: clean
 clean: 
