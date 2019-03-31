@@ -45,20 +45,20 @@ split_str(char * input, char ** tokens, int count) {
 		token = strtok_r(str, " \n", &saveptr);
 		if (token == NULL) {
 			for (k = 0; k < j; k++) { free(tokens[k]); }
-			fprintf(stderr, "Too few tokens in string %s.\n", input);
+			fprintf(stderr, "Too few tokens. ");
 			return -1;
 		}
 		tokens[j] = strdup(token);
 		if (tokens[j] == NULL) {
 			for (k = 0; k < j; k++) { free(tokens[k]); }
-			fprintf(stderr, "Failed to allocate memory for list file token.\n");
+			fprintf(stderr, "Failed to allocate memory for token. ");
 			return -1;
 		}
 	}
 
 	if (strtok_r(str, " \n", &saveptr) != NULL) {
-		for (k = 0; k < 3; k++) { free(tokens[k]); }
-		fprintf(stderr, "Too many tokens in string %s.\n", input);
+		for (k = 0; k < count; k++) { free(tokens[k]); }
+		fprintf(stderr, "Too many tokens. ");
 		return -1;
 	}
 

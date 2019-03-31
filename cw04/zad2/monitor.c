@@ -15,19 +15,9 @@
 #define DATE_LEN 20
 #define MAX_CMD_LEN 13
 
-int
-timetos(const struct timespec * time, char (* str_buffer)[DATE_LEN]) {
-	time_t secs = time -> tv_sec;
-	struct tm * tm;
-	tm = localtime(&secs);
-	if (tm == NULL) {
-		return -1;
-	}
-	
-	size_t res = strftime(*str_buffer, DATE_LEN, "%F_%H-%M-%S", tm);
-	return (res < DATE_LEN-1) ? -1 : 0;
-}
 
+
+/* Child process functions. */
 long
 from_file(char ** cache, char * path) {
 	FILE * fp;
@@ -90,6 +80,7 @@ to_archive(char * name, char * content, long fsize) {
 	return 0;
 }
 
+// Both child and parent process global variables.
 int running = 1, working = 1;
 
 void
@@ -115,6 +106,19 @@ handle_SIGUSR2_sub(int signum) {
 		printf("Process %d stopped already.\n", getpid());
 	}
 	working = 0;
+}
+
+int
+timetos(const struct timespec * time, char (* str_buffer)[DATE_LEN]) {
+	time_t secs = time -> tv_sec;
+	struct tm * tm;
+	tm = localtime(&secs);
+	if (tm == NULL) {
+		return -1;
+	}
+	
+	size_t res = strftime(*str_buffer, DATE_LEN, "%F_%H-%M-%S", tm);
+	return (res < DATE_LEN-1) ? -1 : 0;
 }
 
 int
@@ -234,6 +238,9 @@ monitor_inner(char * name, char * path, double period, int has_dupl) {
 	return count;
 }
 
+
+
+/* Parent process functions. */
 void 
 list(pid_t * children, int no_children) {
 	printf("Monitoring processes:\n");
@@ -376,9 +383,11 @@ monitor(flist * list) {
 		} else if (pid == 0) {
 			prctl(PR_SET_PDEATHSIG, SIGKILL);
 			int result = monitor_inner(list -> name[i], list -> path[i], list -> period[i], has_dupl[i]);	
+			
 			free_flist(list);
 			free(children);
 			free(has_dupl);
+			
 			printf("Process %d exits...\n", getpid());
 			return -result;
 		} else {
@@ -386,7 +395,8 @@ monitor(flist * list) {
 			printf("Name: %s, path: %s, monitor PID: %d.\n", list -> name[i], list -> path[i], pid);
 		}
 	}
-	
+
+	// SIGTSTP intercept.	
 	struct sigaction act = {0};
 	act.sa_handler = end;
 	if (sigaddset(&act.sa_mask, SIGTSTP) != 0) {
@@ -396,9 +406,11 @@ monitor(flist * list) {
 	sigaction(SIGINT, &act, NULL);
 
 	// Command loop.
+	char * cmd = NULL;
 	while (running) {
-		char cmd[MAX_CMD_LEN] = "";
-		if (fgets(cmd, MAX_CMD_LEN, stdin) == NULL && running) {
+		size_t len = 0;
+
+		if (getline(&cmd, &len, stdin) == -1 && running) {
 			fprintf(stderr, "Failed to read command.\n");
 			continue;
 		}
@@ -411,8 +423,9 @@ monitor(flist * list) {
 			handle_cmd(cmd, children, proc_count);
 		}
 	}
-
+	
 	// Upon receiving SIGINT or END command.	
+	free(cmd);
 	for (i = 0; i < proc_count; i++) {
 		if (kill(children[i], SIGINT) != 0) {
 			fprintf(stderr, "Failed to send ending signal to child process %d.\n", children[i]);
