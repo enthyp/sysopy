@@ -5,6 +5,24 @@
 #include <limits.h>
 #include "util.h"
 
+long 
+read_natural(char * string) {
+	char *endp;
+	long outcome = strtol(string, &endp, 10);
+
+	if (endp == string) {
+		return -1L;
+	}
+	if ((outcome == LONG_MAX || outcome == LONG_MIN) && errno == ERANGE) {
+		return -1L;
+	}
+	if (*endp != '\0') {
+		return -1L;
+	}
+
+	return outcome;	
+}
+
 double 
 read_double(char * string) {
 	char * rem = NULL;
@@ -15,6 +33,36 @@ read_double(char * string) {
 	}
 
 	return outcome;	
+}
+
+int
+split_str(char * input, char ** tokens, int count) {
+	char * str, * token;
+	char * saveptr;
+
+	int j, k;
+	for (j = 0, str = input; j < count; j++, str = NULL) {
+		token = strtok_r(str, " \n", &saveptr);
+		if (token == NULL) {
+			for (k = 0; k < j; k++) { free(tokens[k]); }
+			fprintf(stderr, "Too few tokens in string %s.\n", input);
+			return -1;
+		}
+		tokens[j] = strdup(token);
+		if (tokens[j] == NULL) {
+			for (k = 0; k < j; k++) { free(tokens[k]); }
+			fprintf(stderr, "Failed to allocate memory for list file token.\n");
+			return -1;
+		}
+	}
+
+	if (strtok_r(str, " \n", &saveptr) != NULL) {
+		for (k = 0; k < 3; k++) { free(tokens[k]); }
+		fprintf(stderr, "Too many tokens in string %s.\n", input);
+		return -1;
+	}
+
+	return 0;
 }
 
 void free_flist(flist * fl) {
@@ -69,52 +117,32 @@ get_flist(char * list_path) {
 	// Process the file.
 	char * line = NULL;
 	size_t len = 0;
-	ssize_t read;
-	int i = 0;
-	while ((read = getline(&line, &len, fp)) != -1) {
-		char * str, * token;
-		char * saveptr;
+	int i = 0, linenum = 1;
+	while (getline(&line, &len, fp) != -1) {
 		char * tokens[3];
-		int j, k;
-		for (j = 0, str = line; j < 3; j++, str = NULL) {
-			token = strtok_r(str, " \n", &saveptr);
-			if (token == NULL) {
-				for (k = 0; k < j; k++) { free(tokens[k]); }
-				fprintf(stderr, "Too few tokens in list file line.\n");
-				i--;
-				break;
-			}
-			tokens[j] = strdup(token);
-			if (tokens[j] == NULL) {
-				for (k = 0; k < j; k++) { free(tokens[k]); }
-				fprintf(stderr, "Failed to allocate memory for list file token.\n");
-				i--;
-				token = NULL;
-				break;
-			}
+		if (split_str(line, tokens, 3) == -1) {
+			fprintf(stderr, "Input file: line %d incorrect.\n", linenum);
+			linenum++;
+			continue;
 		}
+		
+		result.name[i] = tokens[0];
+		result.path[i] = tokens[1];
+		result.period[i] = read_double(tokens[2]);
 
-		if (token != NULL && strtok_r(str, " \n", &saveptr) != NULL) {
+		if (result.period[i] < 0) { 
+			fprintf(stderr, "Incorrect period in line %d.\n", linenum);
+			int k;
 			for (k = 0; k < 3; k++) { free(tokens[k]); }
-			fprintf(stderr, "Too many tokens in list file line.\n");
-			i--;
-		} else if (token != NULL) {
-			result.name[i] = tokens[0];
-			result.path[i] = tokens[1];
-			result.period[i] = read_double(tokens[2]);
-
-			if (result.period[i] < 0) { 
-				fprintf(stderr, "Incorrect period.\n");
-				for (k = 0; k < 3; k++) { free(tokens[k]); }
-				i--;
-			} else {
-				free(tokens[2]);
-			}
+			linenum++;
+			continue;
+		} else {
+			free(tokens[2]);
 		}
-
+		
+		linenum++;
 		i++;
 	}
-	result.size = i;
 	
 	if (i == 0) {
 		result.size = -1;
@@ -126,8 +154,17 @@ get_flist(char * list_path) {
 		result.name = (char **) realloc(result.name, i * sizeof(char *));
 		result.path = (char **) realloc(result.path, i * sizeof(char *));
 		result.period = (double *) realloc(result.period, i * sizeof(double));
+		
+		if (result.name == NULL || result.path == NULL || result.period == NULL) {
+			if (result.name != NULL) free(result.name);
+			if (result.path != NULL) free(result.path);
+			if (result.period != NULL) free(result.period);
+			i = -1;
+			fprintf(stderr, "Failed to allocate memory for files list.\n");
+		}
 	}
 
+	result.size = i;
 	free(line);
 	fclose(fp);
 	return result;

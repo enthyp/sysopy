@@ -9,6 +9,8 @@ typedef struct file_list {
 
 long read_natural(char * string);
 
+int split_str(char * input, char ** tokens, int count);
+
 void free_flist(flist * fl);
 
 void print_flist(flist *fl);
