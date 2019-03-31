@@ -74,8 +74,7 @@ from_file(char ** cache, char * path) {
 int 
 to_archive(char * name, char * content, long fsize) {
 	char arch_path[PATH_MAX];
-	strcpy(arch_path, "./archive/");
-	strcat(arch_path, name);
+	strcpy(arch_path, name);
 	FILE * arch_fp;
 	if ((arch_fp = fopen(arch_path, "w")) == NULL) {
 		fprintf(stderr, "Failed to open copy of file %s.\n", arch_path);
