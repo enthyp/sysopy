@@ -101,6 +101,8 @@ void
 handle_SIGUSR1_sub(int signum) {
 	if (!working) {
 		printf("Process %d starting...\n", getpid());
+	} else {
+		printf("Process %d started already.\n", getpid());
 	}
 	working = 1;
 }
@@ -109,6 +111,8 @@ void
 handle_SIGUSR2_sub(int signum) {
 	if (working) {
 		printf("Process %d stopping...\n", getpid());
+	} else {
+		printf("Process %d stopped already.\n", getpid());
 	}
 	working = 0;
 }
@@ -168,7 +172,7 @@ monitor_inner(char * name, char * path, double period, int has_dupl) {
 		return -1;
 	}
 
-	struct sigaction act;
+	struct sigaction act = {0};
 	act.sa_handler = handle_SIGINT_sub;
 	sigemptyset(&act.sa_mask);
 	act.sa_flags = 0;
@@ -379,7 +383,7 @@ monitor(flist * list) {
 			return -result;
 		} else {
 			children[i] = pid;
-			printf("Monitoring %s...\n", list -> path[i]);
+			printf("Name: %s, path: %s, monitor PID: %d.\n", list -> name[i], list -> path[i], pid);
 		}
 	}
 	
@@ -402,7 +406,7 @@ monitor(flist * list) {
 		if ((strlen(cmd) > 0) && (cmd[strlen(cmd) - 1] == '\n')) {
 			cmd[strlen(cmd) - 1] = '\0';
 		}
-
+		
 		if (running) {
 			handle_cmd(cmd, children, proc_count);
 		}
