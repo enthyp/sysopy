@@ -1,6 +1,5 @@
 TARGET := sender catcher
 SRC := $(TARGET).c
-OBJ := $(SRC:%.c=%.o)
 
 CFLAGS := -Wall -g
 
@@ -8,9 +7,9 @@ CFLAGS := -Wall -g
 .PHONY: all
 all: $(TARGET)
 
-$(TARGET): $(OBJ) 
+$(TARGET): %: %.o
 	$(CC) $(CFLAGS) $< -o $@
 
 .PHONY: clean
 clean: 
-	rm -f $(OBJ) $(TARGET)
+	rm -f *.o $(TARGET)
