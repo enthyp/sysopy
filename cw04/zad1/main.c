@@ -3,10 +3,13 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sys/prctl.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 char * wait_msg = "Oczekuję na CTRL+Z - kontynuacja albo CTR+C - zakończenie programu.";
 char * sigint_msg = "Odebrano sygnał SIGINT.";
-int show = 1;
+int glob_show = 1;
 
 
 int
@@ -24,8 +27,8 @@ print_time(void) {
 
 void
 handle_SIGTSTP(int signum){
-	show = 1 - show;
-	if (!show) {
+	glob_show = 1 - glob_show;
+	if (!glob_show) {
 		printf("%s\n", wait_msg);
 	}
 };
@@ -38,16 +41,25 @@ handle_SIGINT(int signum) {
 
 void
 run() {
-	signal(SIGTSTP, handle_SIGTSTP);
+	if (signal(SIGTSTP, handle_SIGTSTP) == SIG_ERR) {
+		fprintf(stderr, "Failed to set SIGTSTP handler.\n");
+		exit(-1);
+	}
 
 	struct sigaction act;
 	act.sa_handler = handle_SIGINT;
-	sigemptyset(&act.sa_mask);
+	if (sigemptyset(&act.sa_mask) != 0) {
+		fprintf(stderr, "Failed to create sigset.\n");
+		exit(-1);
+	}
 	act.sa_flags = 0;
-	sigaction(SIGINT, &act, NULL);
+	if (sigaction(SIGINT, &act, NULL) != 0) {
+		fprintf(stderr, "Failed to set SIGINT handler.\n");
+		exit(-1);
+	}
 
 	while (1) {
-		if (show) {
+		if (glob_show) {
 			print_time();
 			sleep(1);
 		}
@@ -62,6 +74,7 @@ fork_sub() {
 		fprintf(stderr, "Failed to fork subprocess.\n");
 		exit(-1);
 	} else if (child_pid == 0) {
+		prctl(PR_SET_PDEATHSIG, SIGKILL);
 		if (execlp("./date_loop.sh", "./date_loop.sh", NULL) == -1) {
 			fprintf(stderr, "Failed to run the loop in subprocess.\n");
 			exit(-1);
@@ -71,10 +84,13 @@ fork_sub() {
 
 void
 handle_SIGTSTP_sub(int signum){
-	show = 1 - show;
-	if (!show) {
+	glob_show = 1 - glob_show;
+	if (!glob_show) {
 		printf("%s\n", wait_msg);
-		kill(child_pid, SIGKILL);
+		if (waitpid(child_pid, NULL, WNOHANG) == 0 && kill(child_pid, SIGKILL) != 0) {
+			fprintf(stderr, "Failed to kill the child process.\n");
+			exit(-1);
+		}
 	} else {
 		fork_sub();
 	}	
@@ -83,23 +99,34 @@ handle_SIGTSTP_sub(int signum){
 void
 handle_SIGINT_sub(int signum) {
 	printf("%s\n", sigint_msg);
-	if (child_pid != -1) {
-		kill(child_pid, SIGKILL);
+	if (waitpid(child_pid, NULL, WNOHANG) == 0 && kill(child_pid, SIGKILL) != 0) {
+		fprintf(stderr, "Failed to stop child process.\n");
+		exit(-1);
 	}
 	exit(0);
 }
 
 void
 run_subprocess() {
-	signal(SIGTSTP, handle_SIGTSTP_sub);
+	fork_sub();
+
+	if (signal(SIGTSTP, handle_SIGTSTP_sub) == SIG_ERR) {
+		fprintf(stderr, "Failed to set SIGTSTP handler.\n");
+		exit(-1);
+	}
 
 	struct sigaction act;
 	act.sa_handler = handle_SIGINT_sub;
-	sigemptyset(&act.sa_mask);
+	if (sigemptyset(&act.sa_mask) != 0) {
+		fprintf(stderr, "Failed to create sigset.\n");
+		exit(-1);
+	}
 	act.sa_flags = 0;
-	sigaction(SIGINT, &act, NULL);
+	if (sigaction(SIGINT, &act, NULL) != 0) {
+		fprintf(stderr, "Failed to set SIGINT handler.\n");
+		exit(-1);
+	}
 
-	fork_sub();
 	while (1) {
 		sleep(1);
 	}

@@ -62,9 +62,7 @@ from_file(char ** cache, char * path) {
 }
 
 int 
-to_archive(char * name, char * content, long fsize) {
-	char arch_path[PATH_MAX];
-	strcpy(arch_path, name);
+to_archive(char * arch_path, char * content, long fsize) {
 	FILE * arch_fp;
 	if ((arch_fp = fopen(arch_path, "w")) == NULL) {
 		fprintf(stderr, "Failed to open copy of file %s.\n", arch_path);
@@ -81,31 +79,31 @@ to_archive(char * name, char * content, long fsize) {
 }
 
 // Both child and parent process global variables.
-int running = 1, working = 1;
+int glob_running = 1, glob_working = 1, glob_siginted = 0;
 
 void
 handle_SIGINT_sub(int signum) {
-	running = 0;
+	glob_running = 0;
 }
 
 void
 handle_SIGUSR1_sub(int signum) {
-	if (!working) {
+	if (!glob_working) {
 		printf("Process %d starting...\n", getpid());
+		glob_working = 1;
 	} else {
 		printf("Process %d started already.\n", getpid());
 	}
-	working = 1;
 }
 
 void
 handle_SIGUSR2_sub(int signum) {
-	if (working) {
+	if (glob_working) {
 		printf("Process %d stopping...\n", getpid());
+		glob_working = 0;
 	} else {
 		printf("Process %d stopped already.\n", getpid());
 	}
-	working = 0;
 }
 
 int
@@ -152,7 +150,7 @@ get_file_name(char ** buffer, char * name, struct timespec mod_time, int has_dup
 		strcat(tmp_buffer, "_");
 		strcat(tmp_buffer, pid);
 	}
-
+	
 	if (*buffer != NULL) { 
 		free(*buffer);
 	}
@@ -167,7 +165,7 @@ monitor_inner(char * name, char * path, double period, int has_dupl) {
 	long fsize = from_file(&cache, path);
 	if (fsize < 0) {
 		return -1;
-	}
+	}	
 
 	struct stat sb;
 	if (lstat(path, &sb) == -1) {
@@ -175,6 +173,7 @@ monitor_inner(char * name, char * path, double period, int has_dupl) {
 		free(cache);
 		return -1;
 	}
+	struct timespec mod_time = sb.st_mtim;
 
 	struct sigaction act = {0};
 	act.sa_handler = handle_SIGINT_sub;
@@ -188,14 +187,13 @@ monitor_inner(char * name, char * path, double period, int has_dupl) {
 	act.sa_handler = handle_SIGUSR2_sub;
 	sigaction(SIGUSR2, &act, NULL);
 
-	struct timespec mod_time = sb.st_mtim;
 	struct timespec sleep_dur; 
 	sleep_dur.tv_sec = (long)period;
 	sleep_dur.tv_nsec = (time_t)((period - (long)period) * 1.0e9);
 	int count = 0;
-	while (running) {
+	while (glob_running) {
 		nanosleep(&sleep_dur, NULL);
-		if (!working) {
+		if (!glob_working) {
 			continue;
 		}
 
@@ -206,7 +204,7 @@ monitor_inner(char * name, char * path, double period, int has_dupl) {
 		}
 
 		if (difftime(sb.st_mtim.tv_sec, mod_time.tv_sec) != 0) {
-			char * arch_name;
+			char * arch_name = NULL;
 			if (get_file_name(&arch_name, name, mod_time, has_dupl) == -1) {
 				fprintf(stderr, "Failed to create archive file name.\n");
 				free(cache);
@@ -299,8 +297,14 @@ stop_all(pid_t * children, int no_children) {
 }
 
 void 
-end(int signum) {
-	running = 0;
+end() {
+	glob_running = 0;
+}
+
+void
+handle_SIGINT(int signum) {
+	glob_running = 0;
+	glob_siginted = 1;
 }
 
 void
@@ -312,7 +316,7 @@ handle_cmd(char * cmd, pid_t * children, int no_children) {
 	} else if (strcmp(cmd, "START ALL") == 0) {
 		start_all(children, no_children);
 	} else if (strcmp(cmd, "END") == 0) {
-		end(0);
+		end();
 	} else {
 		char * tokens[2];
 		if (split_str(cmd, tokens, 2) == -1) {
@@ -398,43 +402,48 @@ monitor(flist * list) {
 
 	// SIGTSTP intercept.	
 	struct sigaction act = {0};
-	act.sa_handler = end;
+	act.sa_handler = handle_SIGINT;
 	if (sigaddset(&act.sa_mask, SIGTSTP) != 0) {
 		fprintf(stderr, "Failed to add SIGTSTP to blocked signals.\n");
 	}
 	act.sa_flags = 0;
-	sigaction(SIGINT, &act, NULL);
+	if (sigaction(SIGINT, &act, NULL) != 0) {
+		fprintf(stderr, "Failed to set SIGINT handler.\n");
+	}
 
 	// Command loop.
 	char * cmd = NULL;
-	while (running) {
+	while (glob_running) {
 		size_t len = 0;
 
-		if (getline(&cmd, &len, stdin) == -1 && running) {
+		if (getline(&cmd, &len, stdin) == -1 && glob_running) {
 			fprintf(stderr, "Failed to read command.\n");
 			continue;
 		}
 	
-		if ((strlen(cmd) > 0) && (cmd[strlen(cmd) - 1] == '\n')) {
+		if (glob_running && (strlen(cmd) > 0) && (cmd[strlen(cmd) - 1] == '\n')) {
 			cmd[strlen(cmd) - 1] = '\0';
 		}
 		
-		if (running) {
+		if (glob_running) {
 			handle_cmd(cmd, children, proc_count);
 		}
 	}
 	
 	// Upon receiving SIGINT or END command.	
 	free(cmd);
-	for (i = 0; i < proc_count; i++) {
-		if (kill(children[i], SIGINT) != 0) {
-			fprintf(stderr, "Failed to send ending signal to child process %d.\n", children[i]);
+	if (!glob_siginted) {
+		for (i = 0; i < proc_count; i++) {
+			if (waitpid(children[i], NULL, WNOHANG) == 0 && kill(children[i], SIGINT) != 0) {
+				fprintf(stderr, "Failed to send ending signal to child process %d.\n", children[i]);
+			}
 		}
 	}
 
 	for (i = 0; i < proc_count; i++) {
 		int statloc;
 		if (waitpid(children[i], &statloc, 0) == -1) {
+			fprintf(stderr, "Error: %s\n", strerror(errno));
 			fprintf(stderr, "Error waiting for child process.\n");
 		} else if (WIFEXITED(statloc) && WEXITSTATUS(statloc) != 1) {
 			printf("Proces %d utworzył %d kopii pliku %s.\n", children[i], (256 - WEXITSTATUS(statloc)) % 256, list -> name[i]);
