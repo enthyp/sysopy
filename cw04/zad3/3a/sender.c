@@ -114,10 +114,19 @@ handle_SIG2_Q(int signum, siginfo_t * info, void * context) {
 
 void 
 set_receive(int sig_out, int sig_fin) {
-	struct sigaction act;
-	sigfillset(&act.sa_mask);
-	sigdelset(&act.sa_mask, sig_out);
-	sigdelset(&act.sa_mask, sig_fin);
+	sigset_t blocked_signals;
+	sigfillset(&blocked_signals);	
+	sigdelset(&blocked_signals, sig_out);
+	sigdelset(&blocked_signals, sig_fin);
+	if (sigprocmask(SIG_BLOCK, &blocked_signals, NULL) != 0) {
+		fprintf(stderr, "Failed to set blocked signals.\n");
+		exit(-1);
+	}
+
+	struct sigaction act = {0};
+	if (sigemptyset(&act.sa_mask) != 0) {
+		fprintf(stderr, "Failed to set signal handler mask.\n");
+	}
 	
 	if (glob_mode == SIGQUEUE) {
 		act.sa_flags = SA_SIGINFO;
@@ -177,7 +186,7 @@ main(int argc, char * argv[]) {
 		fprintf(stderr, "Catcher PID incorrect.\n");
 		return -1;
 	}
-	if ((no_signals = read_natural(argv[2])) == -1L) {
+	if ((no_signals = (int) read_natural(argv[2])) == -1L) {
 		fprintf(stderr, "Number of signals incorrect.\n");
 		return -1;
 	}
