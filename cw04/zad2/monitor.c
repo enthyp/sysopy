@@ -175,7 +175,7 @@ monitor_inner(char * name, char * path, double period, int has_dupl) {
 	}
 	struct timespec mod_time = sb.st_mtim;
 
-	struct sigaction act = {0};
+	struct sigaction act;
 	act.sa_handler = handle_SIGINT_sub;
 	sigemptyset(&act.sa_mask);
 	act.sa_flags = 0;
@@ -401,7 +401,7 @@ monitor(flist * list) {
 	}
 
 	// SIGTSTP intercept.	
-	struct sigaction act = {0};
+	struct sigaction act;
 	act.sa_handler = handle_SIGINT;
 	if (sigaddset(&act.sa_mask, SIGTSTP) != 0) {
 		fprintf(stderr, "Failed to add SIGTSTP to blocked signals.\n");

@@ -123,7 +123,7 @@ set_receive(int sig_out, int sig_fin) {
 		exit(-1);
 	}
 
-	struct sigaction act = {0};
+	struct sigaction act;
 	if (sigemptyset(&act.sa_mask) != 0) {
 		fprintf(stderr, "Failed to set signal handler mask.\n");
 	}
