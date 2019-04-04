@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <signal.h>
+#include <stdlib.h>
 
 long 
 read_natural(char * string) {
@@ -64,14 +65,14 @@ send(pid_t catcher_pid, int no_signals, mode mode) {
 
 	glob_mode = mode;
 	set_receive(sig1, sig2);
-
+	
 	// Send signals.	
 	int i = 0;
 	while (i < no_signals) {
 		if (!glob_waiting) {
+			glob_waiting = 1;
 			send_signal(catcher_pid, sig1);
 			i++;
-			glob_waiting = 1;
 		}
 	}
 	glob_sending = 0;
@@ -97,7 +98,7 @@ handle_SIG1_R(int signum) {
 }
 
 void
-handle_SIG1(int signum) {
+handle_SIG1_K(int signum) {
 	if (glob_sending) {
 		glob_waiting = 0;
 	} else {
@@ -106,7 +107,7 @@ handle_SIG1(int signum) {
 }
 
 void 
-handle_SIG2(int signum) {
+handle_SIG2_K(int signum) {
 	glob_receiving = 0;
 }
 
@@ -139,11 +140,21 @@ handle_SIGUSR1(int signum) {
 
 void 
 set_receive(int sig_out, int sig_fin) {
-	struct sigaction act;
-	sigfillset(&act.sa_mask);
-	sigdelset(&act.sa_mask, sig_out);
-	sigdelset(&act.sa_mask, sig_fin);	
-			
+	sigset_t blocked_signals;
+	sigfillset(&blocked_signals);	
+	sigdelset(&blocked_signals, sig_out);
+	sigdelset(&blocked_signals, sig_fin);
+	sigdelset(&blocked_signals, SIGUSR1);
+	if (sigprocmask(SIG_BLOCK, &blocked_signals, NULL) != 0) {
+		fprintf(stderr, "Failed to set blocked signals.\n");
+		exit(-1);
+	}
+
+	struct sigaction act = {0};
+	if (sigemptyset(&act.sa_mask) != 0) {
+		fprintf(stderr, "Failed to set signal handler mask.\n");
+	}		
+
 	if (glob_mode == SIGQUEUE) {
 		act.sa_flags = SA_SIGINFO;
 		
@@ -155,10 +166,10 @@ set_receive(int sig_out, int sig_fin) {
 	} else if (glob_mode == KILL) {
 		act.sa_flags = 0; 
 		
-		act.sa_handler = handle_SIG1;
+		act.sa_handler = handle_SIG1_K;
 		sigaction(sig_out, &act, NULL);
 
-		act.sa_handler = handle_SIG2;
+		act.sa_handler = handle_SIG2_K;
 		sigaction(sig_fin, &act, NULL);
 	} else {
 		act.sa_flags = 0; 
@@ -169,7 +180,7 @@ set_receive(int sig_out, int sig_fin) {
 		act.sa_handler = handle_SIG1_R;
 		sigaction(sig_out, &act, NULL);
 
-		act.sa_handler = handle_SIG2;
+		act.sa_handler = handle_SIG2_K;
 		sigaction(sig_fin, &act, NULL);
 	}
 }

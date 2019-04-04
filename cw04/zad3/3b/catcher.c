@@ -3,6 +3,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <signal.h>
+#include <stdlib.h>
 
 typedef enum {
 	KILL,
@@ -72,10 +73,19 @@ handle_SIG2(int sig) {
 
 void
 set_receive(int sig_out, int sig_fin) {
-	struct sigaction act;
-	sigfillset(&act.sa_mask);
-	sigdelset(&act.sa_mask, sig_out);
-	sigdelset(&act.sa_mask, sig_fin);
+	sigset_t blocked_signals;
+	sigfillset(&blocked_signals);	
+	sigdelset(&blocked_signals, sig_out);
+	sigdelset(&blocked_signals, sig_fin);
+	if (sigprocmask(SIG_BLOCK, &blocked_signals, NULL) != 0) {
+		fprintf(stderr, "Failed to set blocked signals.\n");
+		exit(-1);
+	}
+
+	struct sigaction act = {0};
+	if (sigemptyset(&act.sa_mask) != 0) {
+		fprintf(stderr, "Failed to set signal handler mask.\n");
+	}
 	act.sa_flags = SA_SIGINFO;
 
 	act.sa_sigaction = handle_SIG1;
