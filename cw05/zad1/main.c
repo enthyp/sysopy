@@ -5,6 +5,7 @@
 #include <sys/prctl.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <fcntl.h>
 
 int
 split_commands(char *** commands, char * line) {
@@ -113,6 +114,7 @@ preprocess_commands(char ** (*commands)[], char ** command_strings, int no_cmd) 
 
 int 
 run_pipeline(char ** commands[], char * line, int no_cmd) {
+	// Simple, no pipes.
 	if (no_cmd == 1) {
 		pid_t pid;
 		if ((pid = fork()) == -1) {
@@ -136,8 +138,96 @@ run_pipeline(char ** commands[], char * line, int no_cmd) {
 		}	 
 	} 
 
-	
+	// He needs some pipes.
+	int ** pipes = (int **) malloc((no_cmd - 1) * sizeof(int *));
+	if (pipes == NULL) {
+		fprintf(stderr, "Failed to allocate memory for pipe descriptors.\n");
+		return -1;
+	}
+	int i, j;
+	for (i = 0; i < no_cmd - 1; i++) {
+		pipes[i] = (int *) malloc(2 * sizeof(int));
+		if (pipes[i] == NULL) {
+			fprintf(stderr, "Failed to allocate memory for pipe descriptors.\n");
+			for (j = 0; j < i; j++) { free(pipes[j]); }
+			free(pipes);
+			for (j = 0; j < no_cmd; j++) { free(commands[j]);  }
+			free(line);
+			return -1;
+		}
+	}
 
+	for (i = 0; i < no_cmd - 1; i++) {	
+		if (pipe(pipes[i]) == -1) {
+			fprintf(stderr, "Failed to open pipe.\n");
+			for (j = 0; j < i; j++) { close(pipes[j][0]); close(pipes[j][1]); }
+			for (j = 0; j < no_cmd - 1; j++) { free(pipes[j]); }
+			free(pipes);
+			for (j = 0; j < no_cmd; j++) { free(commands[j]);  }
+			free(line);
+			return -1;
+		}
+	}
+
+	// Run the children.
+	for (i = 0; i < no_cmd; i++) {
+		int j;
+		pid_t pid;
+		if ((pid = fork()) == -1) {
+			fprintf(stderr, "Failed to fork child process.\n");
+			for (j = 0; j < no_cmd - 1; j++) { close(pipes[j][0]); close(pipes[j][1]); free(pipes[j]); }
+			free(pipes);
+			for (j = 0; j < no_cmd; j++) { free(commands[j]);  }
+			free(line);
+			return -1;
+		} else if (pid == 0) {
+			prctl(PR_SET_PDEATHSIG, SIGKILL);
+			
+			// Stick the pipes together.
+			int in_fd = STDIN_FILENO, out_fd = STDOUT_FILENO;
+			if (i < no_cmd - 1) {
+				out_fd = pipes[i][1];
+			}
+			if (i > 0) {
+				in_fd = pipes[i - 1][0];
+			}
+			for (j = 0; j < no_cmd - 1; j++) {
+				if (j != i - 1) {
+					close(pipes[j][0]);
+				}
+				if (j != i) {
+					close(pipes[j][1]);
+				}
+			}
+
+			dup2(in_fd, STDIN_FILENO);
+			dup2(out_fd, STDOUT_FILENO);
+
+			// Run command.
+			if (execvp(commands[i][0], commands[i]) == -1) {
+				fprintf(stderr, "Failed to execute command in child process.\n");
+				for (j = 0; j < no_cmd - 1; j++) { close(pipes[j][0]); close(pipes[j][1]); free(pipes[j]); }
+				free(pipes);
+				free(line);
+				for (j = 0; j < no_cmd; j++) { free(commands[j]);  }
+				return -1;
+			}
+		}
+	}
+
+	// Clean up.
+	for (i = 0; i < no_cmd - 1; i++) {
+		close(pipes[i][0]); close(pipes[i][1]); free(pipes[i]);
+	}
+	free(pipes);
+
+	// But wait for your children.
+	for (i = 0; i < no_cmd; i++) {
+		if (wait(NULL) == -1) {
+			fprintf(stderr, "Error waiting for child process.\n");
+		}
+	}
+	
 	return 0;
 }
 
