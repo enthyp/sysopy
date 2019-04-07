@@ -2,17 +2,23 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/prctl.h>
+#include <sys/wait.h>
+#include <signal.h>
 
 int
 split_commands(char *** commands, char * line) {
-	int len, no_cmd;
-	for (len = 0, no_cmd = 1; line[len] != '\0'; len++) {
+	int len, no_cmd, is_white;
+	for (len = 0, no_cmd = 1, is_white = 1; line[len] != '\0'; len++) {
 		if (line[len] == '|') {
 			no_cmd++;
 		}
+		if (line[len] != ' ' && line[len] != '\t' && line[len] != '\n') {	
+			is_white = 0;
+		}
 	}
 	
-	if (no_cmd == 0) {
+	if (no_cmd == 1 && is_white == 1) {
 		return 0;
 	}
 
@@ -105,34 +111,78 @@ preprocess_commands(char ** (*commands)[], char ** command_strings, int no_cmd) 
 	return 0;
 } 
 
+int 
+run_pipeline(char ** commands[], char * line, int no_cmd) {
+	if (no_cmd == 1) {
+		pid_t pid;
+		if ((pid = fork()) == -1) {
+			fprintf(stderr, "Failed to fork child process.\n");
+			return -1;
+		} else if (pid == 0) {
+			prctl(PR_SET_PDEATHSIG, SIGKILL);
+			if (execvp(commands[0][0], commands[0]) == -1) {
+				fprintf(stderr, "Failed to execute command in child process.\n");
+				free(line);
+				int i;
+				for (i = 0; i < no_cmd; i++) { free(commands[i]);  }
+				return -1;
+			}
+		} else {
+			if (waitpid(pid, NULL, 0) == -1) {
+				fprintf(stderr, "Failed waiting for child process.\n");
+				return -1;
+			}
+			return 0;
+		}	 
+	} 
+
+	
+
+	return 0;
+}
+
 int
 execute_line(char * line) {
 	char ** command_strings;
 	int no_cmd;
+	// Split on pipe characters into separate commands.
 	if ((no_cmd = split_commands(&command_strings, line)) == -1) {
 		fprintf(stderr, "Failed to split commands on pipe characters: ");
 		return -1;
 	}
 
+	if (no_cmd == 0) {
+		return 0;
+	}
+
 	char ** commands[no_cmd];
+	// Split each command into separate words on whitespace characters (' ' and '\t' for now).
 	if (preprocess_commands(&commands, command_strings, no_cmd) == -1) {
 		fprintf(stderr, "Failed to split command on whitespace characters: ");
 		free(command_strings);
 		return -1;
 	}
-
-	/* Do the work. */	
-	int i;
-	for (i = 0; i < no_cmd; i++) {
-		int j;
-		printf("Cmd %d:\n", i + 1);
-		for (j = 0; commands[i][j] != NULL; j++) {
-			printf("\tword: %s\n", commands[i][j]);
-		}
-	}
-	
-	/* Done. */
 	free(command_strings);
+
+	// Stick pipes together and run the chain.
+	int i;
+	if (run_pipeline(commands, line, no_cmd) == -1) {
+		fprintf(stderr, "Failed to run pipeline for given commands: ");
+		for (i = 0; i < no_cmd; i++) {
+			free(commands[i]);
+		}	
+		return -1;
+	}
+
+	//for (i = 0; i < no_cmd; i++) {
+	//	int j;
+	//	printf("Cmd %d:\n", i + 1);
+	//	for (j = 0; commands[i][j] != NULL; j++) {
+	//		printf("\tword: %s\n", commands[i][j]);
+	//	}
+	//}
+	
+	/* Clean up. */
 	for (i = 0; i < no_cmd; i++) {
 		free(commands[i]);
 	}	
