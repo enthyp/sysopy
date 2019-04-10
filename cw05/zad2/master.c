@@ -69,6 +69,7 @@ listen(char * path) {
 		if (getline(&line, &len, fp) > 0) {
 			printf("%s", line);
 		}
+		free(line);
 	}
 	
 	fclose(fp);

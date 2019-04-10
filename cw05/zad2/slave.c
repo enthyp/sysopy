@@ -48,7 +48,7 @@ send(char * path, int N) {
 		fflush(fp);
 		sleep(rand() % 4 + 2);
 	}
-
+	// TODO: error checking.
 	fclose(fp);
 }
 
