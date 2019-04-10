@@ -40,15 +40,26 @@ send(char * path, int N) {
 	int i;
 	for (i = 0; i < N; i++) {
 		char date[50];
-		FILE * date_output = popen("date", "r");
-		fgets(date, 49, date_output);
-		pclose(date_output);
-		printf("Written...\n");
+		FILE * date_output;
+		if ((date_output = popen("date", "r")) == NULL) {
+			fprintf(stderr, "Failed to run subprocess: %s\n", strerror(errno));
+			continue;
+		}
+		if (fgets(date, 49, date_output) == NULL) {
+			fprintf(stderr, "Failed to read from FIFO.\n");
+			continue;
+		}
+		if (pclose(date_output) == -1) {
+			fprintf(stderr, "Failed waiting for subprocess: %s\n", strerror(errno));
+		}
+	
 		fprintf(fp, "PID: %d, Date: %s", self, date);
-		fflush(fp);
-		sleep(rand() % 4 + 2);
+		if (fflush(fp) != 0) {
+			fprintf(stderr, "Failed to flush the buffer.\n");
+		}
+		sleep(rand() % 5);
 	}
-	// TODO: error checking.
+
 	fclose(fp);
 }
 

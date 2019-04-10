@@ -7,8 +7,6 @@
 #include <unistd.h>
 #include <string.h>
 
-int g_listening = 1;
-
 int 
 prep_fifo(char * path) {
 	struct stat stats;
@@ -33,45 +31,21 @@ prep_fifo(char * path) {
 }
 
 void 
-handle_SIGINT(int signum) {
-	printf("Received SIGINT.\n");
-	g_listening = 0;
-}
-
-int 
-set_handler() {
-	struct sigaction act;
-	if (sigemptyset(&act.sa_mask) != 0) {
-		fprintf(stderr, "Failed to set signal handler mask.\n");
-	}
-
-	act.sa_flags = 0;	
-	act.sa_handler = handle_SIGINT;
-	return sigaction(SIGINT, &act, NULL);
-}
-
-void 
 listen(char * path) {
-	if (set_handler() != 0) {
-		fprintf(stderr, "Failed to set SIGINT handler.\n");
-		exit(-1);
-	}
-	
 	FILE * fp;
 	if ((fp = fopen(path, "r")) == NULL) {
 		fprintf(stderr, "Failed to open FIFO: %s.\n", strerror(errno));
 		exit(-1);
 	}
 
-	while (g_listening) {
-		char * line = NULL; 
-		size_t len = 0;
-		if (getline(&line, &len, fp) > 0) {
-			printf("%s", line);
-		}
-		free(line);
+	char * line = NULL; 
+	size_t len = 0;
+
+	while (getline(&line, &len, fp) > 0) {
+		printf("%s", line);
 	}
 	
+	free(line);
 	fclose(fp);
 }
 
