@@ -122,6 +122,7 @@ run_pipeline(char ** commands[], char * line, int no_cmd) {
 			return -1;
 		} else if (pid == 0) {
 			prctl(PR_SET_PDEATHSIG, SIGKILL);
+			
 			if (execvp(commands[0][0], commands[0]) == -1) {
 				fprintf(stderr, "Failed to execute command in child process.\n");
 				free(line);
@@ -264,14 +265,6 @@ execute_line(char * line) {
 		return -1;
 	}
 
-	//for (i = 0; i < no_cmd; i++) {
-	//	int j;
-	//	printf("Cmd %d:\n", i + 1);
-	//	for (j = 0; commands[i][j] != NULL; j++) {
-	//		printf("\tword: %s\n", commands[i][j]);
-	//	}
-	//}
-	
 	/* Clean up. */
 	for (i = 0; i < no_cmd; i++) {
 		free(commands[i]);
