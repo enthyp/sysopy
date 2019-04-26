@@ -1,0 +1,4 @@
+ps aux | grep jlanecki | wc -l
+echo 1
+dfsdf
+echo 2 > plik.txt
