@@ -59,8 +59,9 @@ word_count(char * string) {
 	return count;
 }
 
+// God forgive.
 int
-preprocess_commands(char ** (*commands)[], char ** command_strings, int no_cmd) {
+preprocess_commands(char **** commands, char ** command_strings, int no_cmd) {
 	int i;
 	for (i = 0; i < no_cmd; i++) {
 		int no_words = word_count(command_strings[i]);
@@ -113,7 +114,7 @@ preprocess_commands(char ** (*commands)[], char ** command_strings, int no_cmd) 
 } 
 
 int 
-run_pipeline(char ** commands[], char * line, int no_cmd) {
+run_pipeline(char *** commands, char * line, int no_cmd) {
 	// Simple, no pipes.
 	if (no_cmd == 1) {
 		pid_t pid;
@@ -125,9 +126,6 @@ run_pipeline(char ** commands[], char * line, int no_cmd) {
 			
 			if (execvp(commands[0][0], commands[0]) == -1) {
 				fprintf(stderr, "Failed to execute command in child process.\n");
-				free(line);
-				int i;
-				for (i = 0; i < no_cmd; i++) { free(commands[i]);  }
 				return -1;
 			}
 		} else {
@@ -152,8 +150,6 @@ run_pipeline(char ** commands[], char * line, int no_cmd) {
 			fprintf(stderr, "Failed to allocate memory for pipe descriptors.\n");
 			for (j = 0; j < i; j++) { free(pipes[j]); }
 			free(pipes);
-			for (j = 0; j < no_cmd; j++) { free(commands[j]);  }
-			free(line);
 			return -1;
 		}
 	}
@@ -164,8 +160,6 @@ run_pipeline(char ** commands[], char * line, int no_cmd) {
 			for (j = 0; j < i; j++) { close(pipes[j][0]); close(pipes[j][1]); }
 			for (j = 0; j < no_cmd - 1; j++) { free(pipes[j]); }
 			free(pipes);
-			for (j = 0; j < no_cmd; j++) { free(commands[j]);  }
-			free(line);
 			return -1;
 		}
 	}
@@ -178,8 +172,6 @@ run_pipeline(char ** commands[], char * line, int no_cmd) {
 			fprintf(stderr, "Failed to fork child process.\n");
 			for (j = 0; j < no_cmd - 1; j++) { close(pipes[j][0]); close(pipes[j][1]); free(pipes[j]); }
 			free(pipes);
-			for (j = 0; j < no_cmd; j++) { free(commands[j]);  }
-			free(line);
 			return -1;
 		} else if (pid == 0) {
 			prctl(PR_SET_PDEATHSIG, SIGKILL);
@@ -209,8 +201,6 @@ run_pipeline(char ** commands[], char * line, int no_cmd) {
 				fprintf(stderr, "Failed to execute command in child process.\n");
 				for (j = 0; j < no_cmd - 1; j++) { close(pipes[j][0]); close(pipes[j][1]); free(pipes[j]); }
 				free(pipes);
-				free(line);
-				for (j = 0; j < no_cmd; j++) { free(commands[j]);  }
 				return -1;
 			}
 		}
@@ -246,10 +236,11 @@ execute_line(char * line) {
 		return 0;
 	}
 
-	char ** commands[no_cmd];
+	char *** commands = (char ***) malloc(no_cmd * sizeof(char **));
 	// Split each command into separate words on whitespace characters (' ' and '\t' for now).
 	if (preprocess_commands(&commands, command_strings, no_cmd) == -1) {
 		fprintf(stderr, "Failed to split command on whitespace characters: ");
+		free(commands);
 		free(command_strings);
 		return -1;
 	}
@@ -262,13 +253,15 @@ execute_line(char * line) {
 		for (i = 0; i < no_cmd; i++) {
 			free(commands[i]);
 		}	
+		free(commands);
 		return -1;
 	}
 
 	/* Clean up. */
 	for (i = 0; i < no_cmd; i++) {
 		free(commands[i]);
-	}	
+	}
+	free(commands);	
 
 	return 0;
 }

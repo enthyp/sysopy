@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <string.h>
+#include <sys/stat.h>
 
 long 
 read_natural(char * string) {
@@ -27,6 +28,16 @@ read_natural(char * string) {
 
 void
 send(char * path, int N) {
+	struct stat stats;
+    if (stat(path, &stats) != 0) {
+        if (errno != ENOENT) { 
+            fprintf(stderr, "Failed to run stat on given file. %s\n", strerror(errno));   
+            return;
+        } else {
+			fprintf(stderr, "File does not exist.\n");
+			return;
+		}
+    } 
 	FILE * fp;
 	if ((fp = fopen(path, "w")) == NULL) {
 		fprintf(stderr, "Failed to open FIFO: %s.\n", strerror(errno));
