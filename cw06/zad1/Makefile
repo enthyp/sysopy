@@ -52,6 +52,3 @@ teardown: # remove all user queues
 		echo "Queue removal: no user queues found."; \
 	fi
 
-.PHONY:
-echo:
-	@echo $(CLIENT_OBJ)

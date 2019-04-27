@@ -3,9 +3,11 @@
 #include <signal.h>
 #include "include/commons.h"
 
-// Defined below.
-int
-set_signal_handling(signal_handler);
+// prototypes defined in this file
+
+int set_signal_handling(signal_handler);
+
+// definitions
 
 int
 base_setup(exit_handler e_handler, signal_handler sigint_handler) {
