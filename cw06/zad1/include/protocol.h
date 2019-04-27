@@ -1,14 +1,10 @@
 #ifndef PROTOCOL_H
 #define PROTOCOL_H
 
-/***/
-
 #define PROJ_ID 1
 
 #define MAX_MSG_LEN 1024
 #define MAX_CLIENTS 64
-
-/***/
 
 // Message types.
 #define INIT 1
@@ -22,7 +18,6 @@
 
 #define SERVER_STOP 65
 
-/***/
 
 typedef struct {
 	long mtype;
@@ -30,4 +25,4 @@ typedef struct {
 	char mtext[0];
 } msgbuf;
 
-#endif /* protocol */
+#endif // PROTOCOL_H

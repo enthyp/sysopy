@@ -6,44 +6,38 @@
 #include <sys/ipc.h>
 #include <sys/stat.h>
 #include <signal.h>
+#include "protocol.h"
 #include "commons.h"
+#include "queue.h"
 #include <unistd.h> // sleep
 #include <errno.h>
 
-int g_server_queue_id;
-int g_client_queue_ids[MAX_CLIENTS + 1];
+// globals
 
+int g_client_queue_ids[MAX_CLIENTS + 1];
+int g_server_queue_id = -1;
 msgbuf * g_msg; 
 size_t g_msgsz = sizeof(msgbuf) - sizeof(long) + MAX_MSG_LEN;
 
+// prototypes defined in this file
 
-/***/
+void dispatch_init(msgbuf * msg);
+void dispatch_msg(msgbuf *);
+void dispatch_stop(msgbuf * msg);
+void e_handler(void);
+int find_slot(int);
+void sigint_handler(int);
 
-// Defined below.
-int
-set_signal_handling(void);
-
-void
-remove_server_queue(void);
-
-int
-get_server_queue(void);
+// definitions
 
 void
 setup(void) {
-	// Set signal mask and handler.
-	if (set_signal_handling() == -1) {
-		exit(EXIT_FAILURE);
-	}
-
-	// Set queue removal at exit.
-	if (atexit(remove_server_queue) != 0) {
-		fprintf(stderr, "Failed to set atexit function.\n");
-		exit(EXIT_FAILURE);
-	}
+    if (base_setup(e_handler, sigint_handler) == -1) {
+        exit(EXIT_FAILURE);
+    }
 
 	// Get server queue.
-	g_server_queue_id = get_server_queue();
+	g_server_queue_id = get_queue(IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
 	if (g_server_queue_id == -1) {
 		exit(EXIT_FAILURE);
 	} else {
@@ -58,59 +52,11 @@ setup(void) {
 	}
 }
 
-/*** ***/
-
-// Defined below.
-void 
-sigint_handler(int);
-
-int 
-set_signal_handling() {
-	sigset_t mask_set;
-	if (sigfillset(&mask_set) == -1) {
-		perror("Fill mask set: ");
-		return -1;
-	}
-
-	if (sigdelset(&mask_set, SIGINT) == -1) {
-		perror("Unmask SIGINT: ");
-		return -1;
-	}
-	
-	if (sigprocmask(SIG_SETMASK, &mask_set, NULL) == -1) {
-		perror("Set process signal mask: ");
-		return -1;
-	}
-
-	struct sigaction act;
-	act.sa_handler = sigint_handler;
-	act.sa_flags = 0;
-
-	if (sigemptyset(&(act.sa_mask)) == -1) {
-		perror("Clean signal mask: ");
-		return -1;
-	}
-
-	if (sigaddset(&(act.sa_mask), SIGINT) == -1) {
-		perror("Add SIGINT to mask: ");
-		return -1;
-	}
-
-	if (sigaction(SIGINT, &act, NULL) == -1) {
-		perror("Set SIGINT handler: ");
-		return -1;
-	}	
-
-	return 0;
+void
+e_handler(void) {
+    remove_queue(g_server_queue_id);
+    free(g_msg);
 }
-
-/*** *** ***/
-
-int
-send_msg(int, long, char *);
-
-int
-recv_msg(int);
 
 void 
 sigint_handler(int sig) {
@@ -118,19 +64,17 @@ sigint_handler(int sig) {
 
 	int i, count = 0;
 	for (i = 0; i < MAX_CLIENTS; i++) {
-		if (g_client_queue_ids[i] != 0 && send_msg(i, SERVER_STOP, "") == 0) {
+		if (g_client_queue_ids[i] != 0 && send_msg(g_client_queue_ids[i], IPC_NOWAIT, SERVER_STOP, 0, "") == 0) {
 			count++;
 		}	
 	}
 	
 	// TODO: timeout!
 	while (count > 0) {
-		if (recv_msg(STOP) == 0) {
+		if (recv_msg(g_server_queue_id, g_msg, g_msgsz, STOP, IPC_NOWAIT | MSG_NOERROR) == 0) {
 			count--;
 		}
 	}
-
-	free(g_msg);
 
 	if (count == 0)
 		exit(EXIT_SUCCESS);
@@ -138,112 +82,16 @@ sigint_handler(int sig) {
 		exit(EXIT_FAILURE);
 }
 
-/*** *** *** ***/
-
-int
-send_msg(int client_id, long mtype, char * content) {
-	size_t contentsz = strlen(content) + 1; 
-	size_t msgsz = contentsz + sizeof(int);
-
-	msgbuf * msg = malloc(sizeof(msgbuf) + contentsz);
-	if (msg == NULL) {
-		int err = errno;
-		perror("Allocate outgoing message memory: ");
-		return err;
-	}
-
-	msg -> mtype = mtype;
-	msg -> uid = 0;
-	memcpy(msg -> mtext, content, contentsz);
-	
-	// TODO: maybe should handle resends on timeout somehow...	
-	if (msgsnd(g_client_queue_ids[client_id], msg, msgsz, 0) == -1) {
-		int err = errno;
-		perror("Send message: ");
-		free(msg);
-		return err;
-	}
-
-	free(msg);
-	return 0;
-}
-
-int
-recv_msg(int type) {
-	// TODO: must be non-blocking!
-	if (msgrcv(g_server_queue_id, g_msg, g_msgsz, type, MSG_NOERROR) == -1) {
-		int err = errno;
-		perror("Receive message: ");
-		return err;
-	}
-	
-	return 0;
-}
-
-/*** *** *** ***/
-/*** *** ***/
-
-void
-remove_server_queue(void) {
-	if (msgctl(g_server_queue_id, IPC_RMID, NULL) == -1) {
-		if (errno == EINVAL) {
-			printf("No server queue to be removed.\n");
-		} else {
-			perror("Remove server queue: ");
-		}
-	} else {
-		printf("Succesfully removed server queue.\n");
-	}
-}
-
-int
-get_server_queue(void) {
-	char * home = getenv("HOME");
-	if (home == NULL) {
-		fprintf(stderr, "No HOME variable was found.\n");
-		return -1;
-	}
-
-	key_t key = ftok(home, PROJ_ID);
-	if (key == -1) {
-		perror("Generate key: ");
-		return -1;
-	}
-
-	int server_queue_id = msgget(key, IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
-	if (server_queue_id == -1) {
-		perror("Create queue: ");
-		return -1;
-	}
-
-	return server_queue_id;
-}
-
-/*** ***/
-
-void
-dispatch_msg(msgbuf *);
-
 void
 listen(void) {		
 	while (1) {
-		if (recv_msg(0) == -1) {
-			free(g_msg);
+		if (recv_msg(g_server_queue_id, g_msg, g_msgsz, 0, MSG_NOERROR) == -1) {
 			exit(EXIT_FAILURE);
 		}
 		
 		dispatch_msg(g_msg);	
 	}
 }
-
-/*** ***/
-
-// Defined below.
-void
-dispatch_init(msgbuf * msg);
-
-void
-dispatch_stop(msgbuf * msg);
 
 void 
 dispatch_msg(msgbuf * msg) {
@@ -253,11 +101,6 @@ dispatch_msg(msgbuf * msg) {
 		default: fprintf(stderr, "Unknown message type: %ld\n", msg -> mtype);
 	}
 }
-
-/*** *** ***/
-
-int 
-find_slot(int);
 
 void
 dispatch_init(msgbuf * msg) {
@@ -279,14 +122,12 @@ dispatch_init(msgbuf * msg) {
 	char msg_content[3] = {'\0'};
 	sprintf(msg_content, "%d", client_id);
 	int res;
-	if ((res = send_msg(client_id, client_id, msg_content)) != 0) {
+	if ((res = send_msg(client_queue_id, IPC_NOWAIT, client_id, 0, msg_content)) != 0) {
 		// TODO: timeout handling? Some resend queue??
 		g_client_queue_ids[client_id] = 0;
 		return;
 	}
 }
-
-/*** *** *** ***/
 
 int
 find_slot(int client_queue_id) {
@@ -315,7 +156,6 @@ find_slot(int client_queue_id) {
 	return slot;
 }
 
-/*** *** *** ***/
 
 void
 dispatch_stop(msgbuf * msg) {
@@ -330,10 +170,6 @@ dispatch_stop(msgbuf * msg) {
 		fprintf(stderr, "No such client registered: %d\n", client_id);
 	}
 }
-
-/*** *** ***/
-/*** ***/
-/***/
 
 int 
 main(void) {
