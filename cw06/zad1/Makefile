@@ -1,5 +1,5 @@
 TARGET := client server
-INCL := protocol.h
+INCL := commons.h
 
 CFLAGS := -Wall -g
 
@@ -19,7 +19,8 @@ teardown: # remove all user queues
 	if [[ ! -z "$$q_id" ]]; then \
 		for id in $$q_id; do \
 			ipcrm msg $$id; \
-		done \
+		done; \
+		echo "All user queues removed."; \
 	else \
-		echo "No user queues found."; \
+		echo "Queue removal: no user queues found."; \
 	fi
