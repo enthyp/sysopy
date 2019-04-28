@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <string.h>
 #include "include/commons.h"
 
 // prototypes defined in this file
@@ -8,6 +9,9 @@
 int set_signal_handling(signal_handler);
 
 // definitions
+
+void
+sigalrm_handler(int sig) {}
 
 int
 base_setup(exit_handler e_handler, signal_handler sigint_handler) {
@@ -47,7 +51,7 @@ set_signal_handling(signal_handler sigint_handler) {
         return -1;
     }
 
-    signal(SIGALRM, SIG_IGN);
+    //signal(SIGALRM, SIG_IGN);
 
     struct sigaction act;
     act.sa_handler = sigint_handler;
@@ -58,13 +62,15 @@ set_signal_handling(signal_handler sigint_handler) {
         return -1;
     }
 
-    if (sigaddset(&(act.sa_mask), SIGINT) == -1) {
-        perror("Add SIGINT to mask: ");
+    if (sigaction(SIGINT, &act, NULL) == -1) {
+        perror("Set SIGINT handler: ");
         return -1;
     }
 
-    if (sigaction(SIGINT, &act, NULL) == -1) {
-        perror("Set SIGINT handler: ");
+    act.sa_handler = sigalrm_handler;
+
+    if (sigaction(SIGALRM, &act, NULL) == -1) {
+        perror("Set SIGALRM handler: ");
         return -1;
     }
 

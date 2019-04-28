@@ -42,7 +42,7 @@ clean:
 
 .PHONY:
 teardown: # remove all user queues
-	@q_id=`ipcs -q | awk '{if ($$3==$$USER) print $$2}'`; \
+	@q_id=`ipcs -q | awk -v USER=$$USER '{if ($$3==USER) print $$2}'`; \
 	if [[ ! -z "$$q_id" ]]; then \
 		for id in $$q_id; do \
 			ipcrm msg $$id; \

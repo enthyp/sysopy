@@ -6,23 +6,28 @@
 #define MAX_MSG_LEN 1024
 #define MAX_CLIENTS 64
 
-// Message types.
-#define INIT 1
-#define ECHO 2
-#define LIST 3
-#define FRIENDS 4
-#define TO_ALL 5
-#define TO_FRIENDS 6
-#define TO_ONE 7
-#define STOP 8
+typedef enum {
+    INIT = 1,
+    ECHO,
+    LIST,
+    FRIENDS,
+    TO_ALL,
+    TO_FRIENDS,
+    TO_ONE,
+    STOP,
+    SERVER_STOP = 65
+} msg_type;
 
-#define SERVER_STOP 65
+int send_cmd(int queue_id, int mflags, int uid, char * cmd);
 
+typedef struct {
+    int uid;
+    char mtext[MAX_MSG_LEN];
+} msgcontent;
 
 typedef struct {
 	long mtype;
-	int uid;
-	char mtext[0];
+	msgcontent mcontent;
 } msgbuf;
 
 #endif // PROTOCOL_H

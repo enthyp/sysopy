@@ -1,3 +1,5 @@
+#include <sys/msg.h>
+
 #ifndef QUEUE_H
 #define QUEUE_H
 
@@ -10,5 +12,7 @@ void remove_queue(int queue_id);
 int recv_msg(int queue_id, msgbuf * msg, size_t msgsz, long mtype, int mflags);
 
 int send_msg(int queue_id, int mflags, long mtype, int uid, char * content);
+
+int get_msg_cnt(int queue_id, struct msqid_ds * buf);
 
 #endif // QUEUE_H

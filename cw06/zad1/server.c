@@ -16,14 +16,15 @@
 
 int g_client_queue_ids[MAX_CLIENTS + 1];
 int g_server_queue_id = -1;
-msgbuf * g_msg; 
+msgbuf * g_msg = NULL;
 size_t g_msgsz = sizeof(msgbuf) - sizeof(long) + MAX_MSG_LEN;
 
 // prototypes defined in this file
 
-void dispatch_init(msgbuf * msg);
+void dispatch_echo(msgbuf *);
+void dispatch_init(msgbuf *);
 void dispatch_msg(msgbuf *);
-void dispatch_stop(msgbuf * msg);
+void dispatch_stop(msgbuf *);
 void e_handler(void);
 int find_slot(int);
 void sigint_handler(int);
@@ -55,7 +56,9 @@ setup(void) {
 void
 e_handler(void) {
     remove_queue(g_server_queue_id);
-    free(g_msg);
+    if (g_msg != NULL) {
+        free(g_msg);
+    }
 }
 
 void 
@@ -66,17 +69,25 @@ sigint_handler(int sig) {
 	for (i = 0; i < MAX_CLIENTS; i++) {
 		if (g_client_queue_ids[i] != 0 && send_msg(g_client_queue_ids[i], IPC_NOWAIT, SERVER_STOP, 0, "") == 0) {
 			count++;
-		}	
-	}
-	
-	// TODO: timeout!
-	while (count > 0) {
-		if (recv_msg(g_server_queue_id, g_msg, g_msgsz, STOP, IPC_NOWAIT | MSG_NOERROR) == 0) {
-			count--;
 		}
 	}
 
-	if (count == 0)
+    //alarm(30);
+    while (count > 0) {
+	    int res;
+		if ((res = recv_msg(g_server_queue_id, g_msg, g_msgsz, STOP, MSG_NOERROR)) == 0) {
+			count--;
+		} else if (res == EINTR) {
+		    fprintf(stderr, "Timed out waiting for client to stop.\n");
+		    count--;
+		} else {
+		    fprintf(stderr, "Error waiting for clients to stop: %s\n", strerror(res));
+            break;
+		}
+	}
+    alarm(0);
+
+    if (count == 0)
 		exit(EXIT_SUCCESS);
 	else 
 		exit(EXIT_FAILURE);
@@ -85,6 +96,7 @@ sigint_handler(int sig) {
 void
 listen(void) {		
 	while (1) {
+	    // TODO: message order!
 		if (recv_msg(g_server_queue_id, g_msg, g_msgsz, 0, MSG_NOERROR) == -1) {
 			exit(EXIT_FAILURE);
 		}
@@ -97,6 +109,7 @@ void
 dispatch_msg(msgbuf * msg) {
 	switch (msg -> mtype) {
 		case INIT: dispatch_init(msg); break;
+		case ECHO: dispatch_echo(msg); break;
 		case STOP: dispatch_stop(msg); break;
 		default: fprintf(stderr, "Unknown message type: %ld\n", msg -> mtype);
 	}
@@ -105,9 +118,9 @@ dispatch_msg(msgbuf * msg) {
 void
 dispatch_init(msgbuf * msg) {
 	errno = 0;
-	int client_queue_id = (int) strtol(msg -> mtext, NULL, 10);
+	int client_queue_id = (int) strtol((msg -> mcontent).mtext, NULL, 10);
 	if (errno != 0) {
-		fprintf(stderr, "Incorrect user queue ID: %s\n", msg -> mtext);
+		fprintf(stderr, "Incorrect user queue ID: %s\n", (msg -> mcontent).mtext);
 		return;
 	}
 	printf(">>> INIT from queue ID: %d\n", client_queue_id);	
@@ -121,11 +134,10 @@ dispatch_init(msgbuf * msg) {
 
 	char msg_content[3] = {'\0'};
 	sprintf(msg_content, "%d", client_id);
-	int res;
-	if ((res = send_msg(client_queue_id, IPC_NOWAIT, client_id, 0, msg_content)) != 0) {
+
+	if (send_msg(client_queue_id, IPC_NOWAIT, client_id, 0, msg_content) != 0) {
 		// TODO: timeout handling? Some resend queue??
 		g_client_queue_ids[client_id] = 0;
-		return;
 	}
 }
 
@@ -156,10 +168,18 @@ find_slot(int client_queue_id) {
 	return slot;
 }
 
+void
+dispatch_echo(msgbuf * msg) {
+    // TODO: add date.
+    int client_id = (msg -> mcontent).uid;
+    printf(">>> ECHO from ID: %d\n", client_id);
+
+    send_msg(g_client_queue_ids[client_id], IPC_NOWAIT, client_id, 0, (msg -> mcontent).mtext);
+}
 
 void
 dispatch_stop(msgbuf * msg) {
-	int client_id = msg -> uid;
+	int client_id = (msg -> mcontent).uid;
 	printf(">>> STOP from ID: %d\n", client_id);
 
 	if (!(client_id >= 0 && client_id < MAX_CLIENTS)) {
@@ -170,6 +190,8 @@ dispatch_stop(msgbuf * msg) {
 		fprintf(stderr, "No such client registered: %d\n", client_id);
 	}
 }
+
+
 
 int 
 main(void) {
