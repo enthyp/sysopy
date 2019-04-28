@@ -142,7 +142,7 @@ run(void) {
 	while (g_running) {
 	    // Send command to server.
         size_t size = 0;
-	    if (getline(&g_input, &size, stdin) == -1) {
+	    if (getline(&g_input, &size, stdin) == -1) { // TODO: this is blocking horrible.
 	        perror("Get input line: ");
 	    } else {
 	        dispatch_outgoing_msg(g_input);
@@ -165,8 +165,23 @@ run(void) {
 }
 
 void
-dispatch_outgoing_msg(char * command) {
-    send_cmd(g_server_queue_id, IPC_NOWAIT, g_client_id, command);
+dispatch_outgoing_msg(char * command_text) {
+    msg cmd = process_cmd(command_text);
+
+    // Incorrect message type.
+    if (cmd.mtype == -1) {
+        return;
+    }
+
+    // Failed to send.
+    if (send_cmd(g_server_queue_id, IPC_NOWAIT, g_client_id, &cmd) == -1) {
+        return;
+    }
+
+    // Handle stopping.
+    if (cmd.mtype == STOP) {
+        exit(EXIT_SUCCESS);
+    }
 }
 
 void

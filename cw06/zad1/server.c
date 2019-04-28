@@ -72,7 +72,7 @@ sigint_handler(int sig) {
 		}
 	}
 
-    //alarm(30);
+    alarm(5); // TODO: is that even necessary?
     while (count > 0) {
 	    int res;
 		if ((res = recv_msg(g_server_queue_id, g_msg, g_msgsz, STOP, MSG_NOERROR)) == 0) {

@@ -18,8 +18,6 @@ typedef enum {
     SERVER_STOP = 65
 } msg_type;
 
-int send_cmd(int queue_id, int mflags, int uid, char * cmd);
-
 typedef struct {
     int uid;
     char mtext[MAX_MSG_LEN];
@@ -29,5 +27,14 @@ typedef struct {
 	long mtype;
 	msgcontent mcontent;
 } msgbuf;
+
+typedef struct {
+    msg_type mtype;
+    char * mtext;
+} msg;
+
+msg process_cmd(char * command_text);
+
+int send_cmd(int queue_id, int mflags, int uid, msg * command);
 
 #endif // PROTOCOL_H
