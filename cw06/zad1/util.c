@@ -3,7 +3,9 @@
 #include <signal.h>
 #include <string.h>
 #include <time.h>
-#include "include/util.h"
+#include <errno.h>
+#include <limits.h>
+#include "util.h"
 
 // prototypes defined in this file
 
@@ -62,10 +64,72 @@ set_signal_handling(signal_handler sigint_handler) {
     return 0;
 }
 
+int
+is_empty(char * s) {
+    while (*s != '\0') {
+        if (!isspace((unsigned char) *s)) {
+            return 0;
+        }
+        s++;
+    }
+
+    return 1;
+}
+
+long
+read_natural(char * string) {
+    char *endp;
+    long outcome = strtol(string, &endp, 10);
+
+    if (endp == string) {
+        return -1L;
+    }
+    if ((outcome == LONG_MAX || outcome == LONG_MIN) && errno == ERANGE) {
+        return -1L;
+    }
+    if (*endp != '\0') {
+        return -1L;
+    }
+
+    return outcome;
+}
 
 int *
 read_numbers_list(char * string) {
-    return NULL;
+    int i, token_count;
+    for (i = 0, token_count = 0; string[i] != '\0'; i++) {
+        int j;
+        for (j = i; string[j] != ' ' && string[j] != '\t' && string[j] != '\0'; j++);
+
+        if (j != i) {
+            token_count++;
+            i = j - 1;
+        }
+    }
+
+    if (token_count == 0) {
+        return NULL;
+    }
+
+    int * result = (int *) malloc(token_count);
+    if (result == NULL) {
+        fprintf(stderr, "Failed to allocate memory for numbers list.\n");
+        return NULL;
+    }
+
+    char * tok, * str = string;
+    for (i = 0, tok = strtok(str, " \t"), str = NULL; tok != NULL; i++, tok = strtok(str, " ")) {
+        int number = read_natural(tok);
+        if (number == -1) {
+            fprintf(stderr, "Incorrect token encountered.\n");
+            free(result);
+            return NULL;
+        } else {
+            result[i] = number;
+        }
+    }
+
+    return result;
 }
 
 int

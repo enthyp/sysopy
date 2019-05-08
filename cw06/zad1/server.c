@@ -232,7 +232,18 @@ get_client_list(char * output) {
 
 void
 dispatch_friends(msgbuf * msg) {
+    int client_id = (msg -> mcontent).uid;
+    printf(">>> FRIENDS from ID: %d\n", client_id);
 
+    if (is_empty((msg -> mcontent).mtext)) {
+        remove_all_friends(&g_client_friends, client_id);
+    } else {
+        int * ids = read_numbers_list((msg->mcontent).mtext);
+        if (ids != NULL) {
+            remove_all_friends(&g_client_friends, client_id);
+            add_friends(&g_client_friends, client_id, ids);
+        }
+    }
 }
 
 void

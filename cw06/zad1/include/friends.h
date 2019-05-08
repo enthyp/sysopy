@@ -17,10 +17,12 @@ void teardown_friends(friends_collection * fc);
 
 int init_position(friends_collection * fc, int id);
 
-int remove_position(friends_collection * fc, int id);
+void remove_position(friends_collection * fc, int id);
 
 int add_friends(friends_collection * fc, int id, int * friend_ids);
 
-int remove_friends(friends_collection * fc, int id, int * friend_ids);
+void remove_friends(friends_collection * fc, int id, int * friend_ids);
+
+void remove_all_friends(friends_collection * fc, int id);
 
 #endif // FRIENDS_H

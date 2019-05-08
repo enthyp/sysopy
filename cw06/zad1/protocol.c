@@ -3,18 +3,7 @@
 #include <ctype.h>
 #include "protocol.h"
 #include "queue.h"
-
-int
-is_empty(char * s) {
-    while (*s != '\0') {
-        if (!isspace((unsigned char) *s)) {
-            return 0;
-        }
-        s++;
-    }
-
-    return 1;
-}
+#include "util.h"
 
 msg
 process_cmd(char * command_text) {
