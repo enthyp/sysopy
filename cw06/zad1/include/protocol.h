@@ -14,6 +14,8 @@ typedef enum {
     TO_ALL,
     TO_FRIENDS,
     TO_ONE,
+    ADD,
+    DEL,
     STOP,
     SERVER_STOP = 65
 } msg_type;

@@ -7,10 +7,12 @@
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include "protocol.h"
-#include "commons.h"
+#include "util.h"
 #include "queue.h"
 #include <errno.h>
 #include <unistd.h>
+#include <sys/prctl.h>
+#include <signal.h>
 
 // globals
 
@@ -22,13 +24,16 @@ struct msqid_ds * g_msqid_ds = NULL;
 size_t g_msgsz = sizeof(msgcontent);
 int g_running = 1;
 int g_server_queue_id;
+int g_pid = 0;
 
 // prototypes defined in this file
 
 void dispatch_incoming_msg(msgbuf *);
 void dispatch_outgoing_msg(char *);
 void e_handler(void);
+int set_sigusr1_handling(void);
 void sigint_handler(int);
+void sigusr1_handler(int);
 void stop(void);
 
 // definitions
@@ -39,7 +44,11 @@ setup(void) {
 	    exit(EXIT_FAILURE);
 	}
 
-	// Get queues.
+    if (set_sigusr1_handling() == -1) {
+        exit(EXIT_FAILURE);
+    }
+
+    // Get queues.
 	g_server_queue_id = get_queue(0);
 	g_client_queue_id = get_private_queue();
 	if (g_server_queue_id == -1 || g_client_queue_id == -1) {
@@ -51,21 +60,23 @@ setup(void) {
 	// Get incoming message memory.
 	g_msg = malloc(sizeof(msgbuf));
 	if (g_msg == NULL) {
-		perror("Allocate incoming message memory: ");
+		perror(">>> ERR: allocate incoming message memory: ");
 		exit(EXIT_FAILURE);
 	}
 
 	// Get message queue stat memory.
     g_msqid_ds = malloc(sizeof(struct msqid_ds));
     if (g_msqid_ds == NULL) {
-        perror("Allocate message queue stat memory: ");
+        perror(">>> ERR: allocate message queue stat memory: ");
         exit(EXIT_FAILURE);
     }
 }
 
 void
 e_handler(void) {
-    remove_queue(g_client_queue_id);
+    if (g_pid != 0) {
+        remove_queue(g_client_queue_id);
+    }
     if (g_msg != NULL) {
         free(g_msg);
     }
@@ -79,10 +90,50 @@ e_handler(void) {
 
 void 
 sigint_handler(int sig) {
-	printf("Received SIGINT.\n");
-	
-	stop();
+    if (g_pid != 0) {
+        printf("Received SIGINT.\n");
+        stop();
+        kill(g_pid, SIGUSR1);
+    }
 	exit(EXIT_SUCCESS);
+}
+
+int
+set_sigusr1_handling(void) {
+    sigset_t mask_set;
+    if (sigemptyset(&mask_set) == -1) {
+        perror("Empty mask set: ");
+        return -1;
+    }
+
+    if (sigaddset(&mask_set, SIGUSR1) == -1) {
+        perror("Add SIGUSR1 to mask: ");
+        return -1;
+    }
+
+    if (sigprocmask(SIG_UNBLOCK, &mask_set, NULL) == -1) {
+        perror("Modify process signal mask: ");
+        return -1;
+    }
+
+    struct sigaction act;
+    act.sa_handler = sigusr1_handler;
+    act.sa_flags = 0;
+
+    if (sigaction(SIGUSR1, &act, NULL) == -1) {
+        perror("Set SIGUSR1 handler: ");
+        return -1;
+    }
+
+    return 0;
+}
+
+void
+sigusr1_handler(int sig) {
+    if (g_pid != 0) {
+        stop();
+    }
+    exit(EXIT_SUCCESS);
 }
 
 void
@@ -95,20 +146,19 @@ init(void) {
 	char client_queue_id_str[10];
 	sprintf(client_queue_id_str, "%d", g_client_queue_id);
 
-	// TODO: add timeout?
 	int res;
 	if ((res = send_msg(g_server_queue_id, IPC_NOWAIT, INIT, g_client_queue_id, client_queue_id_str)) != 0) {
 		switch (res) {
 			case EAGAIN: { 
-				fprintf(stderr, "Failed to register with server: too many connections.\n"); 
+				fprintf(stderr, ">>> ERR: failed to register with server: too many connections.\n");
 				break;
 			}	
 			case EIDRM: {
-				fprintf(stderr, "Failed to register with server: server queue is down.\n"); 
+				fprintf(stderr, ">>> ERR: failed to register with server: server queue is down.\n");
 				break;
 			}
 			default: {
-				perror("Initialize server connection: "); 
+				perror(">>> ERR: initialize server connection: ");
 				break; 
 			}
 		}
@@ -116,70 +166,68 @@ init(void) {
 		exit(EXIT_FAILURE);
 	}
 
-	// Set timeout.
-	alarm(2);
 	if ((res = recv_msg(g_client_queue_id, g_msg, g_msgsz, 0, 0)) != 0) {
-		if (res == EINTR) {
-			fprintf(stderr, "Initialize server connection: connection timeout.\n");
-		} else {
-			fprintf(stderr, "Initialize server connection: %s\n", strerror(res));
-		}
-
+		fprintf(stderr, ">>> ERR: initialize server connection: %s\n", strerror(res));
 		exit(EXIT_FAILURE);
 	}
-	alarm(0);
 
 	errno = 0;
 	g_client_id = (int) strtol((g_msg -> mcontent).mtext, NULL, 10);
 	if (errno != 0) {
-		perror("Convert server response to client ID: ");
+		perror(">>> ERR: convert server response to client ID: ");
 		exit(EXIT_FAILURE);
 	}
 }
 
 void
 run(void) {
-	while (g_running) {
-	    // Send command to server.
-        size_t size = 0;
-	    if (getline(&g_input, &size, stdin) == -1) { // TODO: this is blocking horrible.
-	        perror("Get input line: ");
-	    } else {
-	        dispatch_outgoing_msg(g_input);
-	    }
+    if ((g_pid = fork()) == -1) {
+        fprintf(stderr, "ERR: failed to fork sending process.\n");
+        return;
+    } else if (g_pid == 0) {
+        // Process all incoming messages.
+        while (g_running) {
+            // Receive commands from the server.
+            if (recv_msg(g_client_queue_id, g_msg, g_msgsz, 0, 0) != 0) {
+                exit(EXIT_FAILURE);
+            }
 
-	    // Process all messages currently in the queue.
-	    int msg_cnt;
-	    if ((msg_cnt = get_msg_cnt(g_client_queue_id, g_msqid_ds)) > 0) {
-	        while (msg_cnt > 0 && g_running) {
-                // TODO: message order!
-                if (recv_msg(g_client_queue_id, g_msg, g_msgsz, 0, 0) != 0) {
-                    exit(EXIT_FAILURE);
-                }
-
-                dispatch_incoming_msg(g_msg);
-	            msg_cnt--;
-	        }
-	    }
-	}
+            dispatch_incoming_msg(g_msg);
+        }
+    } else {
+        // Process all outgoing messages.
+        while (g_running) {
+            // Send command to server.
+            size_t size = 0;
+            if (getline(&g_input, &size, stdin) == -1) {
+                perror(">>> ERR: get input line: ");
+            } else {
+                dispatch_outgoing_msg(g_input);
+            }
+        }
+    }
 }
 
 void
 dispatch_outgoing_msg(char * command_text) {
     msg cmd = process_cmd(command_text);
 
-    // Incorrect message type.
+    // Handle incorrect message type.
     if (cmd.mtype == -1) {
         return;
     }
 
-    // Failed to send.
+    // Send message.
     if (send_cmd(g_server_queue_id, IPC_NOWAIT, g_client_id, &cmd) == -1) {
+        fprintf(stderr, ">>> ERR: failed to send message.\n");
         return;
     }
 
-    // Handle stopping.
+    // Stop if requested.
     if (cmd.mtype == STOP) {
+        if (g_pid != 0) {
+            kill(g_pid, SIGUSR1);
+        }
         exit(EXIT_SUCCESS);
     }
 }
@@ -188,12 +236,12 @@ void
 dispatch_incoming_msg(msgbuf * msg) {
 	if (msg -> mtype == SERVER_STOP) {
 		printf(">>> SERVER STOPPED.\n");
-		stop();
-		g_running = 0;
+        kill(getppid(), SIGUSR1);
+        g_running = 0;
 	} else if (msg -> mtype == g_client_id) {
 		printf(">>> MSG: %s\n", (msg -> mcontent).mtext);
 	} else {
-		fprintf(stderr, ">>> ERR: Unknown message type.\n");
+		fprintf(stderr, ">>> ERR: unknown message type.\n");
 	}
 }
 
@@ -209,4 +257,3 @@ int main(void) {
 	
 	return 0;
 }
-

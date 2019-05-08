@@ -37,7 +37,6 @@ int
 get_private_queue(void) {
     int queue_id = (int) msgget(IPC_PRIVATE, S_IRUSR | S_IWUSR);
     if (queue_id == -1) {
-        perror("Create private queue: ");
         return -1;
     }
 
@@ -62,9 +61,7 @@ send_msg(int queue_id, int mflags, long mtype, int uid, char * content) {
     size_t msgsz = sizeof(msgcontent);
     msgbuf * msg = malloc(sizeof(msgbuf));
     if (msg == NULL) {
-        int err = errno;
-        perror("Allocate outgoing message memory: ");
-        return err;
+        return errno;
     }
 
     msg -> mtype = mtype;
@@ -74,7 +71,6 @@ send_msg(int queue_id, int mflags, long mtype, int uid, char * content) {
 
     if (msgsnd(queue_id, msg, msgsz, mflags) == -1) {
         int err = errno;
-        perror("Send message: ");
         free(msg);
         return err;
     }
@@ -87,20 +83,8 @@ send_msg(int queue_id, int mflags, long mtype, int uid, char * content) {
 int
 recv_msg(int queue_id, msgbuf * msg, size_t msgsz, long mtype, int mflags) {
     if (msgrcv(queue_id, msg, msgsz, mtype, mflags) == -1) {
-        int err = errno;
-        perror("Receive message: ");
-        return err;
+        return errno;
     }
 
     return 0;
-}
-
-int
-get_msg_cnt(int queue_id, struct msqid_ds * buf) {
-    if (msgctl(queue_id, IPC_STAT, buf) == -1) {
-        perror("Get message queue stat: ");
-        return -1;
-    }
-
-    return buf -> msg_qnum;
 }

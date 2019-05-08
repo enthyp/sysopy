@@ -7,7 +7,7 @@
 #include <sys/stat.h>
 #include <signal.h>
 #include "protocol.h"
-#include "commons.h"
+#include "util.h"
 #include "queue.h"
 #include <unistd.h> // sleep
 #include <errno.h>
@@ -48,7 +48,7 @@ setup(void) {
 	// Get incoming message memory.
 	g_msg = malloc(sizeof(msgbuf) + MAX_MSG_LEN);
 	if (g_msg == NULL) {
-		perror("Allocate message memory: ");
+		perror(">>> ERR: allocate message memory: ");
 		exit(EXIT_FAILURE);
 	}
 }
@@ -78,10 +78,10 @@ sigint_handler(int sig) {
 		if ((res = recv_msg(g_server_queue_id, g_msg, g_msgsz, STOP, MSG_NOERROR)) == 0) {
 			count--;
 		} else if (res == EINTR) {
-		    fprintf(stderr, "Timed out waiting for client to stop.\n");
+		    fprintf(stderr, ">>> ERR: timed out waiting for client to stop.\n");
 		    count--;
 		} else {
-		    fprintf(stderr, "Error waiting for clients to stop: %s\n", strerror(res));
+		    fprintf(stderr, ">>> ERR: error waiting for clients to stop: %s\n", strerror(res));
             break;
 		}
 	}
@@ -111,7 +111,7 @@ dispatch_msg(msgbuf * msg) {
 		case INIT: dispatch_init(msg); break;
 		case ECHO: dispatch_echo(msg); break;
 		case STOP: dispatch_stop(msg); break;
-		default: fprintf(stderr, "Unknown message type: %ld\n", msg -> mtype);
+		default: fprintf(stderr, ">>> ERR: unknown message type: %ld\n", msg -> mtype);
 	}
 }
 
@@ -120,7 +120,7 @@ dispatch_init(msgbuf * msg) {
 	errno = 0;
 	int client_queue_id = (int) strtol((msg -> mcontent).mtext, NULL, 10);
 	if (errno != 0) {
-		fprintf(stderr, "Incorrect user queue ID: %s\n", (msg -> mcontent).mtext);
+		fprintf(stderr, ">>> ERR: incorrect user queue ID: %s\n", (msg -> mcontent).mtext);
 		return;
 	}
 	printf(">>> INIT from queue ID: %d\n", client_queue_id);	
@@ -156,12 +156,12 @@ find_slot(int client_queue_id) {
 	}
 	
 	if (exists) {
-		fprintf(stderr, "Repeated INIT for client queue %d.\n", client_queue_id);
+		fprintf(stderr, ">>> ERR: repeated INIT for client queue %d.\n", client_queue_id);
 		return -1;
 	}
 
 	if (slot == -1) {
-		fprintf(stderr, "Limit of connections reached.\n");
+		fprintf(stderr, ">>> ERR: limit of connections reached.\n");
 		return -1;
 	}
 
@@ -170,11 +170,15 @@ find_slot(int client_queue_id) {
 
 void
 dispatch_echo(msgbuf * msg) {
-    // TODO: add date.
     int client_id = (msg -> mcontent).uid;
     printf(">>> ECHO from ID: %d\n", client_id);
 
-    send_msg(g_client_queue_ids[client_id], IPC_NOWAIT, client_id, 0, (msg -> mcontent).mtext);
+    char * response = NULL;
+    if (prefix_date((msg -> mcontent).mtext, &response) == -1) {
+        return;
+    }
+    send_msg(g_client_queue_ids[client_id], IPC_NOWAIT, client_id, 0, response);
+    free(response);
 }
 
 void
@@ -183,11 +187,11 @@ dispatch_stop(msgbuf * msg) {
 	printf(">>> STOP from ID: %d\n", client_id);
 
 	if (!(client_id >= 0 && client_id < MAX_CLIENTS)) {
-		fprintf(stderr, "Client ID incorrect: %d\n", client_id);
+		fprintf(stderr, ">>> ERR: client ID incorrect: %d\n", client_id);
 	} else if (g_client_queue_ids[client_id] != 0) {
 		g_client_queue_ids[client_id] = 0;
 	} else {
-		fprintf(stderr, "No such client registered: %d\n", client_id);
+		fprintf(stderr, ">>> ERR: no such client registered: %d\n", client_id);
 	}
 }
 

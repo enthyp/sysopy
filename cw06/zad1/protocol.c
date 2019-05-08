@@ -4,7 +4,8 @@
 #include "protocol.h"
 #include "queue.h"
 
-int is_empty(char * s) {
+int
+is_empty(char * s) {
     while (*s != '\0') {
         if (!isspace((unsigned char) *s)) {
             return 0;
@@ -17,6 +18,12 @@ int is_empty(char * s) {
 
 msg
 process_cmd(char * command_text) {
+    // Strip newline character.
+    int cmd_text_length = strlen(command_text);
+    if (command_text[cmd_text_length - 1] == '\n') {
+        command_text[cmd_text_length - 1] = '\0';
+    }
+
     msg command = { .mtype = -1, .mtext = NULL };
     char * prefix = strtok(command_text, " ");
 
@@ -25,16 +32,41 @@ process_cmd(char * command_text) {
             command.mtype = ECHO;
         } else if (strcmp(prefix, "STOP") == 0) {
             command.mtype = STOP;
+        } else if (strcmp(prefix, "LIST") == 0) {
+            command.mtype = LIST;
+        } else if (strcmp(prefix, "FRIENDS") == 0) {
+            command.mtype = FRIENDS;
+        } else if (strcmp(prefix, "2ALL") == 0) {
+            command.mtype = TO_ALL;
+        } else if (strcmp(prefix, "2FRIENDS") == 0) {
+            command.mtype = TO_FRIENDS;
+        } else if (strcmp(prefix, "2ONE") == 0) {
+            command.mtype = TO_ONE;
+        } else if (strcmp(prefix, "ADD") == 0) {
+            command.mtype = ADD;
+        } else if (strcmp(prefix, "DEL") == 0) {
+            command.mtype = DEL;
         } else if (is_empty(prefix)) {
             return command;
         } else {
-            fprintf(stderr, "Unknown command type.\n");
+            fprintf(stderr, ">>> ERR: unknown command type.\n");
             return command;
         }
 
-        // TODO: handle ADD and DEL without args!
         char * content = strtok(NULL, "");
-        command.mtext = (content == NULL) ? "" : content;
+        if (content == NULL) {
+            if (command.mtype == ADD) {
+                fprintf(stderr, ">>> ERR: ADD must have parameters.\n");
+                command.mtype = -1;
+            } else if (command.mtype == DEL) {
+                fprintf(stderr, ">>> ERR: DEL must have parameters.\n");
+                command.mtype = -1;
+            } else {
+                command.mtext = "";
+            }
+        } else {
+            command.mtext = content;
+        }
     }
 
     return command;
@@ -48,4 +80,3 @@ send_cmd(int queue_id, int mflags, int uid, msg * command) {
 
     return send_msg(queue_id, mflags, command -> mtype, uid, command -> mtext);
 }
-
