@@ -11,22 +11,32 @@
 #include "queue.h"
 #include <unistd.h> // sleep
 #include <errno.h>
+#include "friends.h"
 
 // globals
 
 int g_client_queue_ids[MAX_CLIENTS + 1];
+friends_collection g_client_friends;
 int g_server_queue_id = -1;
 msgbuf * g_msg = NULL;
 size_t g_msgsz = sizeof(msgbuf) - sizeof(long) + MAX_MSG_LEN;
 
 // prototypes defined in this file
 
+void dispatch_add(msgbuf *);
+void dispatch_del(msgbuf *);
 void dispatch_echo(msgbuf *);
+void dispatch_friends(msgbuf *);
 void dispatch_init(msgbuf *);
+void dispatch_list(msgbuf *);
 void dispatch_msg(msgbuf *);
 void dispatch_stop(msgbuf *);
+void dispatch_to_all(msgbuf *);
+void dispatch_to_friends(msgbuf *);
+void dispatch_to_one(msgbuf *);
 void e_handler(void);
 int find_slot(int);
+void get_client_list(char *);
 void sigint_handler(int);
 
 // definitions
@@ -51,11 +61,18 @@ setup(void) {
 		perror(">>> ERR: allocate message memory: ");
 		exit(EXIT_FAILURE);
 	}
+
+	// Allocate friends memory.
+	if (setup_friends(&g_client_friends, MAX_CLIENTS + 1) == -1) {
+	    fprintf(stderr, "Failed to setup friends collection.\n");
+	    exit(EXIT_FAILURE);
+	}
 }
 
 void
 e_handler(void) {
     remove_queue(g_server_queue_id);
+    teardown_friends(&g_client_friends);
     if (g_msg != NULL) {
         free(g_msg);
     }
@@ -66,7 +83,7 @@ sigint_handler(int sig) {
 	printf("Received SIGINT.\n");
 
 	int i, count = 0;
-	for (i = 0; i < MAX_CLIENTS; i++) {
+	for (i = 1; i <= MAX_CLIENTS; i++) {
 		if (g_client_queue_ids[i] != 0 && send_msg(g_client_queue_ids[i], IPC_NOWAIT, SERVER_STOP, 0, "") == 0) {
 			count++;
 		}
@@ -110,6 +127,13 @@ dispatch_msg(msgbuf * msg) {
 	switch (msg -> mtype) {
 		case INIT: dispatch_init(msg); break;
 		case ECHO: dispatch_echo(msg); break;
+		case LIST: dispatch_list(msg); break;
+		case FRIENDS: dispatch_friends(msg); break;
+		case ADD: dispatch_add(msg); break;
+		case DEL: dispatch_del(msg); break;
+		case TO_ALL: dispatch_to_all(msg); break;
+		case TO_FRIENDS: dispatch_to_friends(msg); break;
+		case TO_ONE: dispatch_to_one(msg); break;
 		case STOP: dispatch_stop(msg); break;
 		default: fprintf(stderr, ">>> ERR: unknown message type: %ld\n", msg -> mtype);
 	}
@@ -138,7 +162,10 @@ dispatch_init(msgbuf * msg) {
 	if (send_msg(client_queue_id, IPC_NOWAIT, client_id, 0, msg_content) != 0) {
 		// TODO: timeout handling? Some resend queue??
 		g_client_queue_ids[client_id] = 0;
+		return;
 	}
+
+	init_position(&g_client_friends, client_id);
 }
 
 int
@@ -182,6 +209,58 @@ dispatch_echo(msgbuf * msg) {
 }
 
 void
+dispatch_list(msgbuf * msg) {
+    int client_id = (msg -> mcontent).uid;
+    printf(">>> LIST from ID: %d\n", client_id);
+
+    char response[256] = {'\0'};
+    get_client_list(response);
+    send_msg(g_client_queue_ids[client_id], IPC_NOWAIT, client_id, 0, response);
+}
+
+void
+get_client_list(char * output) {
+    int i;
+    for (i = 1; i <= MAX_CLIENTS; i++) {
+        if (g_client_queue_ids[i] != 0) {
+            char number[4], * num = number;
+            sprintf(num, "%d ", g_client_queue_ids[i]);
+            strcat(output, number);
+        }
+    }
+}
+
+void
+dispatch_friends(msgbuf * msg) {
+
+}
+
+void
+dispatch_add(msgbuf * msg) {
+
+}
+
+void
+dispatch_del(msgbuf * msg) {
+
+}
+
+void
+dispatch_to_all(msgbuf * msg) {
+
+}
+
+void
+dispatch_to_friends(msgbuf * msg) {
+
+}
+
+void
+dispatch_to_one(msgbuf * msg) {
+
+}
+
+void
 dispatch_stop(msgbuf * msg) {
 	int client_id = (msg -> mcontent).uid;
 	printf(">>> STOP from ID: %d\n", client_id);
@@ -194,8 +273,6 @@ dispatch_stop(msgbuf * msg) {
 		fprintf(stderr, ">>> ERR: no such client registered: %d\n", client_id);
 	}
 }
-
-
 
 int 
 main(void) {
