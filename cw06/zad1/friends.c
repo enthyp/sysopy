@@ -2,29 +2,6 @@
 #include <stdio.h>
 #include "friends.h"
 
-
-int
-setup_friends(friends_collection * fc, int size) {
-    fc -> size = size;
-    fc -> friends_list = (friend **) malloc(size * sizeof(friend *));
-
-    if (fc -> friends_list == NULL) {
-        return -1;
-    }
-
-    return 0;
-}
-
-void teardown_friends(friends_collection * fc) {
-    int i;
-    for (i = 0; i < fc -> size; i++) {
-        remove_all_friends(fc, i);
-        remove_position(fc, i);
-    }
-
-    free(fc -> friends_list);
-}
-
 int
 init_position(friends_collection * fc, int id) {
     friend * guard = (friend *) malloc(sizeof(friend));
@@ -41,6 +18,23 @@ init_position(friends_collection * fc, int id) {
     return 0;
 }
 
+int
+setup_friends(friends_collection * fc, int size) {
+    fc -> size = size;
+    fc -> friends_list = (friend **) malloc(size * sizeof(friend *));
+
+    if (fc -> friends_list == NULL) {
+        return -1;
+    }
+
+    int i;
+    for (i = 0; i < size; i++) {
+        init_position(fc, i);
+    }
+
+    return 0;
+}
+
 void
 remove_position(friends_collection * fc, int id) {
     friend * guard = fc -> friends_list[id];
@@ -48,6 +42,16 @@ remove_position(friends_collection * fc, int id) {
         free(guard);
         fc -> friends_list[id] = NULL;
     }
+}
+
+void teardown_friends(friends_collection * fc) {
+    int i;
+    for (i = 0; i < fc -> size; i++) {
+        remove_all_friends(fc, i);
+        remove_position(fc, i);
+    }
+
+    free(fc -> friends_list);
 }
 
 void
@@ -72,15 +76,6 @@ add_friend(friends_collection * fc, int id, int friend_id) {
 }
 
 void
-add_friends(friends_collection * fc, int id, int * friend_ids, int friend_count) {
-    // Not optimal at all, but well... no one cares.
-    int i;
-    for (i = 0; i < friend_count; i++) {
-        add_friend(fc, id, friend_ids[i]);
-    }
-}
-
-void
 remove_friend(friends_collection * fc, int id, int friend_id) {
     friend * iter = fc -> friends_list[id];
     while (iter -> next != NULL) {
@@ -93,15 +88,6 @@ remove_friend(friends_collection * fc, int id, int friend_id) {
         }
 
         iter = iter -> next;
-    }
-}
-
-void
-remove_friends(friends_collection * fc, int id, int * friend_ids, int friend_count) {
-    // Again...
-    int i;
-    for (i = 0; i < friend_count; i++) {
-        remove_friend(fc, id, friend_ids[i]);
     }
 }
 
@@ -130,6 +116,7 @@ get_friend(friends_collection * fc, int id) {
     int friend_id = -1;
     if (g_iter -> next != NULL) {
         friend_id = g_iter -> next -> friend_id;
+        g_iter = g_iter -> next;
     } else {
         g_iter = NULL;
     }

@@ -120,6 +120,11 @@ set_sigusr1_handling(void) {
     act.sa_handler = sigusr1_handler;
     act.sa_flags = 0;
 
+    if (sigemptyset(&(act.sa_mask)) == -1) {
+        perror("Clean signal mask: ");
+        return -1;
+    }
+
     if (sigaction(SIGUSR1, &act, NULL) == -1) {
         perror("Set SIGUSR1 handler: ");
         return -1;
@@ -195,10 +200,12 @@ run(void) {
             dispatch_incoming_msg(g_msg);
         }
     } else {
+        g_input = NULL;
+        size_t size = 0;
+
         // Process all outgoing messages.
         while (g_running) {
             // Send command to server.
-            size_t size = 0;
             if (getline(&g_input, &size, stdin) == -1) {
                 perror(">>> ERR: get input line: ");
             } else {

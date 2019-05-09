@@ -5,6 +5,7 @@
 #include <time.h>
 #include <errno.h>
 #include <limits.h>
+#include <ctype.h>
 #include "util.h"
 
 // prototypes defined in this file
@@ -111,7 +112,7 @@ read_numbers_list(char * string, int ** result_list) {
         return 0;
     }
 
-    *result_list = (int *) malloc(token_count);
+    *result_list = (int *) malloc(token_count * sizeof(int));
     if (*result_list == NULL) {
         fprintf(stderr, "Failed to allocate memory for numbers list.\n");
         return 0;
@@ -172,16 +173,17 @@ prefix_id(char * input, char ** output, int id) {
         return -1;
     }
 
-    char prefix[13], * start = prefix;
-    sprintf(start, "FROM ID %d: ", id);
-    strcat(output, prefix);
+    char prefix[13], * prefix_p = prefix;
+    sprintf(prefix_p, "FROM ID %2d: ", id);
+    strcpy(*output, prefix_p);
+    strcat(*output, input);
 
     return 0;
 }
 
 int
 strip_id(char ** string) {
-    char * token = strtok(&string, " ");
+    char * token = strtok(*string, " ");
 
     if (token == NULL) {
         return -1;

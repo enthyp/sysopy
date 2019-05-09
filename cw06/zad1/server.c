@@ -159,8 +159,6 @@ dispatch_init(msgbuf * msg) {
 		g_client_queue_ids[client_id] = 0;
 		return;
 	}
-
-	init_position(&g_client_friends, client_id);
 }
 
 int
@@ -219,7 +217,7 @@ get_client_list(char * output) {
     for (i = 1; i <= MAX_CLIENTS; i++) {
         if (g_client_queue_ids[i] != 0) {
             char number[4], * num = number;
-            sprintf(num, "%d ", g_client_queue_ids[i]);
+            sprintf(num, "%d ", i);
             strcat(output, number);
         }
     }
@@ -237,7 +235,16 @@ dispatch_friends(msgbuf * msg) {
         int friend_count = read_numbers_list((msg->mcontent).mtext, &ids);
         if (friend_count > 0) {
             remove_all_friends(&g_client_friends, client_id);
-            add_friends(&g_client_friends, client_id, ids, friend_count);
+
+            int i;
+            for (i = 0; i < friend_count; i++) {
+                int id = ids[i];
+                if (g_client_queue_ids[id] != 0) {
+                    add_friend(&g_client_friends, client_id, id);
+                }
+            }
+
+            free(ids);
         }
     }
 
@@ -252,7 +259,15 @@ dispatch_add(msgbuf * msg) {
     int * ids = NULL;
     int friend_count = read_numbers_list((msg->mcontent).mtext, &ids);
     if (friend_count > 0) {
-        add_friends(&g_client_friends, client_id, ids, friend_count);
+        int i;
+        for (i = 0; i < friend_count; i++) {
+            int id = ids[i];
+            if (g_client_queue_ids[id] != 0) {
+                add_friend(&g_client_friends, client_id, id);
+            }
+        }
+
+        free(ids);
     }
 
     display_friends(&g_client_friends, client_id);
@@ -266,7 +281,13 @@ dispatch_del(msgbuf * msg) {
     int * ids = NULL;
     int friend_count = read_numbers_list((msg->mcontent).mtext, &ids);
     if (friend_count > 0) {
-        remove_friends(&g_client_friends, client_id, ids, friend_count);
+        int i;
+        for (i = 0; i < friend_count; i++) {
+            int id = ids[i];
+            remove_friend(&g_client_friends, client_id, id);
+        }
+
+        free(ids);
     }
 
     display_friends(&g_client_friends, client_id);
@@ -290,8 +311,8 @@ dispatch_to_all(msgbuf * msg) {
 
     int i;
     for (i = 1; i <= MAX_CLIENTS; i++) {
-        if (g_client_queue_ids[i] != 0) {
-            send_msg(g_client_queue_ids[i], IPC_NOWAIT, client_id, 0, response);
+        if (client_id != i && g_client_queue_ids[i] != 0) {
+            send_msg(g_client_queue_ids[i], IPC_NOWAIT, i, 0, response);
         }
     }
 
@@ -318,7 +339,7 @@ dispatch_to_friends(msgbuf * msg) {
     int friend_id = get_friend(&g_client_friends, client_id);
     while (friend_id != -1) {
         if (g_client_queue_ids[friend_id] != 0) {
-            send_msg(g_client_queue_ids[friend_id], IPC_NOWAIT, client_id, 0, response);
+            send_msg(g_client_queue_ids[friend_id], IPC_NOWAIT, friend_id, 0, response);
         }
 
         friend_id = get_friend(&g_client_friends, client_id);
@@ -356,7 +377,7 @@ dispatch_to_one(msgbuf * msg) {
     }
 
     if (g_client_queue_ids[id] != 0) {
-        send_msg(g_client_queue_ids[id], IPC_NOWAIT, client_id, 0, response);
+        send_msg(g_client_queue_ids[id], IPC_NOWAIT, id, 0, response);
     }
 
     free(mid_response);

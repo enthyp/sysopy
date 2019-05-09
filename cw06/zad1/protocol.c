@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <string.h>
-#include <ctype.h>
 #include "protocol.h"
 #include "queue.h"
 #include "util.h"
