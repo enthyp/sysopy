@@ -1,0 +1,11 @@
+ECHO test echo
+LIST
+2ONE 1 test 2one
+FRIENDS 1 2 3
+2FRIENDS test 2friends
+DEL 1 3
+2FRIENDS test del
+ADD 1 
+2FRIENDS test add
+2ALL test 2all
+ECHO done

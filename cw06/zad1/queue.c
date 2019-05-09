@@ -20,13 +20,13 @@ get_queue(int msgflag) {
 
     key_t key = ftok(home, PROJ_ID);
     if (key == -1) {
-        perror("Generate key: ");
+        perror("Generate key");
         return -1;
     }
 
     int queue_id = msgget(key, msgflag);
     if (queue_id == -1) {
-        perror("Get queue: ");
+        perror("Get queue");
         return -1;
     }
 
@@ -49,7 +49,7 @@ remove_queue(int queue_id) {
         if (errno == EINVAL) {
             printf("No queue to be removed.\n");
         } else {
-            perror("Remove queue: ");
+            perror("Remove queue");
         }
     } else {
         printf("Successfully removed queue.\n");
