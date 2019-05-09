@@ -34,6 +34,8 @@ process_cmd(char * command_text) {
             command.mtype = ADD;
         } else if (strcmp(prefix, "DEL") == 0) {
             command.mtype = DEL;
+        } else if (strcmp(prefix, "READ") == 0) {
+            command.mtype = READ;
         } else if (is_empty(prefix)) {
             return command;
         } else {

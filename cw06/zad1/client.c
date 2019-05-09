@@ -18,6 +18,8 @@
 
 int g_client_id;
 int g_client_queue_id = -1;
+char * g_file_input = NULL;
+FILE * g_fp = NULL;
 char * g_input = NULL;
 msgbuf * g_msg = NULL;
 struct msqid_ds * g_msqid_ds = NULL;
@@ -31,6 +33,7 @@ int g_pid = 0;
 void dispatch_incoming_msg(msgbuf *);
 void dispatch_outgoing_msg(char *);
 void e_handler(void);
+void from_file(char * file_name);
 int set_sigusr1_handling(void);
 void sigint_handler(int);
 void sigusr1_handler(int);
@@ -76,6 +79,12 @@ void
 e_handler(void) {
     if (g_pid != 0) {
         remove_queue(g_client_queue_id);
+        if (g_fp != NULL) {
+            fclose(g_fp);
+        }
+        if (g_file_input != NULL) {
+            free(g_file_input);
+        }
     }
     if (g_msg != NULL) {
         free(g_msg);
@@ -224,19 +233,43 @@ dispatch_outgoing_msg(char * command_text) {
         return;
     }
 
-    // Send message.
-    if (send_cmd(g_server_queue_id, IPC_NOWAIT, g_client_id, &cmd) == -1) {
-        fprintf(stderr, ">>> ERR: failed to send message.\n");
+    if (cmd.mtype != READ) {
+        // Send message.
+        if (send_cmd(g_server_queue_id, IPC_NOWAIT, g_client_id, &cmd) == -1) {
+            fprintf(stderr, ">>> ERR: failed to send message.\n");
+            return;
+        }
+
+        // Stop if requested.
+        if (cmd.mtype == STOP) {
+            if (g_pid != 0) {
+                kill(g_pid, SIGUSR1);
+            }
+            exit(EXIT_SUCCESS);
+        }
+    } else {
+        from_file(cmd.mtext);
+    }
+}
+
+void
+from_file(char * file_name) {
+    g_fp = fopen(file_name, "r");
+    if (g_fp == NULL) {
+        perror("Opening input file: ");
         return;
     }
 
-    // Stop if requested.
-    if (cmd.mtype == STOP) {
-        if (g_pid != 0) {
-            kill(g_pid, SIGUSR1);
-        }
-        exit(EXIT_SUCCESS);
+    size_t size = 0;
+    while (getline(&g_file_input, &size, g_fp) != -1) {
+        dispatch_outgoing_msg(g_file_input);
     }
+
+    fclose(g_fp);
+    g_fp = NULL;
+
+    free(g_file_input);
+    g_file_input = NULL;
 }
 
 void

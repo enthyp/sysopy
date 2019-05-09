@@ -16,6 +16,7 @@ typedef enum {
     TO_ONE,
     ADD,
     DEL,
+    READ,
     STOP,
     SERVER_STOP = 65
 } msg_type;

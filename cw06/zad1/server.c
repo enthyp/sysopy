@@ -247,8 +247,6 @@ dispatch_friends(msgbuf * msg) {
             free(ids);
         }
     }
-
-    display_friends(&g_client_friends, client_id);
 }
 
 void
@@ -269,8 +267,6 @@ dispatch_add(msgbuf * msg) {
 
         free(ids);
     }
-
-    display_friends(&g_client_friends, client_id);
 }
 
 void
@@ -289,8 +285,6 @@ dispatch_del(msgbuf * msg) {
 
         free(ids);
     }
-
-    display_friends(&g_client_friends, client_id);
 }
 
 void

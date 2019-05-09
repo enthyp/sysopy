@@ -194,6 +194,6 @@ strip_id(char ** string) {
         return -1;
     }
 
-    *string = strtok(NULL, " ");
+    *string = strtok(NULL, "");
     return id;
 }
