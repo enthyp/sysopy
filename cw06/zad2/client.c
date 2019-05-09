@@ -15,15 +15,14 @@
 // globals
 
 int g_client_id;
-int g_client_queue_id = -1;
+msq_d g_client_queue_des = (msq_d) -1;
 char * g_file_input = NULL;
 FILE * g_fp = NULL;
 char * g_input = NULL;
-msgbuf * g_msg = NULL;
-struct msqid_ds * g_msqid_ds = NULL;
-size_t g_msgsz = sizeof(msgcontent);
+char * g_msg = NULL;
+size_t g_msgsz = 0;
 int g_running = 1;
-int g_server_queue_id;
+msq_d g_server_queue_des;
 int g_pid = 0;
 
 // prototypes defined in this file

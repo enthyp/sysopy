@@ -457,6 +457,7 @@ dispatch_stop(char * msg, int uid) {
 	if (!(uid >= 0 && uid < MAX_CLIENTS)) {
 		fprintf(stderr, ">>> ERR: client ID incorrect: %d\n", uid);
 	} else if (g_client_queue_des[uid] != (msq_d) -1) {
+	    mq_close(g_client_queue_des[uid]);
 		g_client_queue_des[uid] = (msq_d) -1;
 		g_client_queue_names[uid][0] = '\0';
 	} else {
