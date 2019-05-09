@@ -89,20 +89,15 @@ sigint_handler(int sig) {
 		}
 	}
 
-    alarm(5); // TODO: is that even necessary?
     while (count > 0) {
 	    int res;
 		if ((res = recv_msg(g_server_queue_id, g_msg, g_msgsz, STOP, MSG_NOERROR)) == 0) {
 			count--;
-		} else if (res == EINTR) {
-		    fprintf(stderr, ">>> ERR: timed out waiting for client to stop.\n");
-		    count--;
 		} else {
 		    fprintf(stderr, ">>> ERR: error waiting for clients to stop: %s\n", strerror(res));
             break;
 		}
 	}
-    alarm(0);
 
     if (count == 0)
 		exit(EXIT_SUCCESS);
@@ -238,37 +233,134 @@ dispatch_friends(msgbuf * msg) {
     if (is_empty((msg -> mcontent).mtext)) {
         remove_all_friends(&g_client_friends, client_id);
     } else {
-        int * ids = read_numbers_list((msg->mcontent).mtext);
-        if (ids != NULL) {
+        int * ids = NULL;
+        int friend_count = read_numbers_list((msg->mcontent).mtext, &ids);
+        if (friend_count > 0) {
             remove_all_friends(&g_client_friends, client_id);
-            add_friends(&g_client_friends, client_id, ids);
+            add_friends(&g_client_friends, client_id, ids, friend_count);
         }
     }
+
+    display_friends(&g_client_friends, client_id);
 }
 
 void
 dispatch_add(msgbuf * msg) {
+    int client_id = (msg -> mcontent).uid;
+    printf(">>> ADD from ID: %d\n", client_id);
 
+    int * ids = NULL;
+    int friend_count = read_numbers_list((msg->mcontent).mtext, &ids);
+    if (friend_count > 0) {
+        add_friends(&g_client_friends, client_id, ids, friend_count);
+    }
+
+    display_friends(&g_client_friends, client_id);
 }
 
 void
 dispatch_del(msgbuf * msg) {
+    int client_id = (msg -> mcontent).uid;
+    printf(">>> DEL from ID: %d\n", client_id);
 
+    int * ids = NULL;
+    int friend_count = read_numbers_list((msg->mcontent).mtext, &ids);
+    if (friend_count > 0) {
+        remove_friends(&g_client_friends, client_id, ids, friend_count);
+    }
+
+    display_friends(&g_client_friends, client_id);
 }
 
 void
 dispatch_to_all(msgbuf * msg) {
+    int client_id = (msg -> mcontent).uid;
+    printf(">>> 2ALL from ID: %d\n", client_id);
 
+    char * mid_response = NULL;
+    if (prefix_id((msg -> mcontent).mtext, &mid_response, client_id) == -1) {
+        return;
+    }
+
+    char * response = NULL;
+    if (prefix_date(mid_response, &response) == -1) {
+        free(mid_response);
+        return;
+    }
+
+    int i;
+    for (i = 1; i <= MAX_CLIENTS; i++) {
+        if (g_client_queue_ids[i] != 0) {
+            send_msg(g_client_queue_ids[i], IPC_NOWAIT, client_id, 0, response);
+        }
+    }
+
+    free(mid_response);
+    free(response);
 }
 
 void
 dispatch_to_friends(msgbuf * msg) {
+    int client_id = (msg -> mcontent).uid;
+    printf(">>> 2FRIENDS from ID: %d\n", client_id);
 
+    char * mid_response = NULL;
+    if (prefix_id((msg -> mcontent).mtext, &mid_response, client_id) == -1) {
+        return;
+    }
+
+    char * response = NULL;
+    if (prefix_date(mid_response, &response) == -1) {
+        free(mid_response);
+        return;
+    }
+
+    int friend_id = get_friend(&g_client_friends, client_id);
+    while (friend_id != -1) {
+        if (g_client_queue_ids[friend_id] != 0) {
+            send_msg(g_client_queue_ids[friend_id], IPC_NOWAIT, client_id, 0, response);
+        }
+
+        friend_id = get_friend(&g_client_friends, client_id);
+    }
+
+    free(mid_response);
+    free(response);
 }
 
 void
 dispatch_to_one(msgbuf * msg) {
+    int client_id = (msg -> mcontent).uid;
+    printf(">>> 2ONE from ID: %d\n", client_id);
 
+    char * mtext = (msg -> mcontent).mtext;
+    int id = strip_id(&mtext);
+
+    if (id == -1) {
+        return;
+    }
+
+    if (mtext == NULL) {
+        mtext = "";
+    }
+
+    char * mid_response = NULL;
+    if (prefix_id(mtext, &mid_response, client_id) == -1) {
+        return;
+    }
+
+    char * response = NULL;
+    if (prefix_date(mid_response, &response) == -1) {
+        free(mid_response);
+        return;
+    }
+
+    if (g_client_queue_ids[id] != 0) {
+        send_msg(g_client_queue_ids[id], IPC_NOWAIT, client_id, 0, response);
+    }
+
+    free(mid_response);
+    free(response);
 }
 
 void
@@ -295,4 +387,3 @@ main(void) {
 	
 	return 0;
 }
-

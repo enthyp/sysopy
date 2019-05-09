@@ -94,8 +94,8 @@ read_natural(char * string) {
     return outcome;
 }
 
-int *
-read_numbers_list(char * string) {
+int
+read_numbers_list(char * string, int ** result_list) {
     int i, token_count;
     for (i = 0, token_count = 0; string[i] != '\0'; i++) {
         int j;
@@ -108,28 +108,28 @@ read_numbers_list(char * string) {
     }
 
     if (token_count == 0) {
-        return NULL;
+        return 0;
     }
 
-    int * result = (int *) malloc(token_count);
-    if (result == NULL) {
+    *result_list = (int *) malloc(token_count);
+    if (*result_list == NULL) {
         fprintf(stderr, "Failed to allocate memory for numbers list.\n");
-        return NULL;
+        return 0;
     }
 
     char * tok, * str = string;
-    for (i = 0, tok = strtok(str, " \t"), str = NULL; tok != NULL; i++, tok = strtok(str, " ")) {
+    for (i = 0, tok = strtok(str, " \t"), str = NULL; tok != NULL; i++, tok = strtok(str, " \t")) {
         int number = read_natural(tok);
         if (number == -1) {
             fprintf(stderr, "Incorrect token encountered.\n");
-            free(result);
-            return NULL;
+            free(*result_list);
+            return 0;
         } else {
-            result[i] = number;
+            (*result_list)[i] = number;
         }
     }
 
-    return result;
+    return token_count;
 }
 
 int
@@ -161,4 +161,37 @@ prefix_date(char * input, char ** output) {
 
     strcat(*output, input);
     return 0;
+}
+
+int
+prefix_id(char * input, char ** output, int id) {
+    int output_length = strlen(input) + 12 + 1;
+    *output = (char *) malloc(output_length);
+    if (*output == NULL) {
+        perror("Memory allocation for prefix: ");
+        return -1;
+    }
+
+    char prefix[13], * start = prefix;
+    sprintf(start, "FROM ID %d: ", id);
+    strcat(output, prefix);
+
+    return 0;
+}
+
+int
+strip_id(char ** string) {
+    char * token = strtok(&string, " ");
+
+    if (token == NULL) {
+        return -1;
+    }
+
+    int id;
+    if ((id = read_natural(token)) == -1) {
+        return -1;
+    }
+
+    *string = strtok(NULL, " ");
+    return id;
 }
