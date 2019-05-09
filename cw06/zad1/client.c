@@ -63,14 +63,14 @@ setup(void) {
 	// Get incoming message memory.
 	g_msg = malloc(sizeof(msgbuf));
 	if (g_msg == NULL) {
-		perror(">>> ERR: allocate incoming message memory: ");
+		perror("Allocate incoming message memory");
 		exit(EXIT_FAILURE);
 	}
 
 	// Get message queue stat memory.
     g_msqid_ds = malloc(sizeof(struct msqid_ds));
     if (g_msqid_ds == NULL) {
-        perror(">>> ERR: allocate message queue stat memory: ");
+        perror("Allocate message queue stat memory");
         exit(EXIT_FAILURE);
     }
 }
@@ -111,17 +111,17 @@ int
 set_sigusr1_handling(void) {
     sigset_t mask_set;
     if (sigemptyset(&mask_set) == -1) {
-        perror("Empty mask set: ");
+        perror("Empty mask set");
         return -1;
     }
 
     if (sigaddset(&mask_set, SIGUSR1) == -1) {
-        perror("Add SIGUSR1 to mask: ");
+        perror("Add SIGUSR1 to mask");
         return -1;
     }
 
     if (sigprocmask(SIG_UNBLOCK, &mask_set, NULL) == -1) {
-        perror("Modify process signal mask: ");
+        perror("Modify process signal mask");
         return -1;
     }
 
@@ -130,12 +130,12 @@ set_sigusr1_handling(void) {
     act.sa_flags = 0;
 
     if (sigemptyset(&(act.sa_mask)) == -1) {
-        perror("Clean signal mask: ");
+        perror("Clean signal mask");
         return -1;
     }
 
     if (sigaction(SIGUSR1, &act, NULL) == -1) {
-        perror("Set SIGUSR1 handler: ");
+        perror("Set SIGUSR1 handler");
         return -1;
     }
 
@@ -172,7 +172,7 @@ init(void) {
 				break;
 			}
 			default: {
-				perror(">>> ERR: initialize server connection: ");
+				perror("Initialize server connection");
 				break; 
 			}
 		}
@@ -188,7 +188,7 @@ init(void) {
 	errno = 0;
 	g_client_id = (int) strtol((g_msg -> mcontent).mtext, NULL, 10);
 	if (errno != 0) {
-		perror(">>> ERR: convert server response to client ID: ");
+		perror("Convert server response to client ID");
 		exit(EXIT_FAILURE);
 	}
 }
@@ -196,7 +196,7 @@ init(void) {
 void
 run(void) {
     if ((g_pid = fork()) == -1) {
-        fprintf(stderr, "ERR: failed to fork sending process.\n");
+        fprintf(stderr, "Failed to fork sending process.\n");
         return;
     } else if (g_pid == 0) {
         // Process all incoming messages.
@@ -216,7 +216,7 @@ run(void) {
         while (g_running) {
             // Send command to server.
             if (getline(&g_input, &size, stdin) == -1) {
-                perror(">>> ERR: get input line: ");
+                perror("Get input line");
             } else {
                 dispatch_outgoing_msg(g_input);
             }

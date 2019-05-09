@@ -17,7 +17,7 @@ int set_signal_handling(signal_handler);
 int
 base_setup(exit_handler e_handler, signal_handler sigint_handler) {
     // Set signal mask and signal handler.
-    if (set_signal_handling(sigint_handler) == -1) {
+    if (set_signal_handling(sigint_handler) != 0) {
         return -1;
     }
 
@@ -34,17 +34,17 @@ int
 set_signal_handling(signal_handler sigint_handler) {
     sigset_t mask_set;
     if (sigfillset(&mask_set) == -1) {
-        perror("Fill mask set: ");
+        perror("Fill mask set");
         return -1;
     }
 
     if (sigdelset(&mask_set, SIGINT) == -1) {
-        perror("Unmask SIGINT: ");
+        perror("Unmask SIGINT");
         return -1;
     }
 
     if (sigprocmask(SIG_SETMASK, &mask_set, NULL) == -1) {
-        perror("Set process signal mask: ");
+        perror("Set process signal mask");
         return -1;
     }
 
@@ -53,12 +53,12 @@ set_signal_handling(signal_handler sigint_handler) {
     act.sa_flags = 0;
 
     if (sigemptyset(&(act.sa_mask)) == -1) {
-        perror("Clean signal mask: ");
+        perror("Clean signal mask");
         return -1;
     }
 
     if (sigaction(SIGINT, &act, NULL) == -1) {
-        perror("Set SIGINT handler: ");
+        perror("Set SIGINT handler");
         return -1;
     }
 
@@ -150,7 +150,7 @@ prefix_date(char * input, char ** output) {
     int output_length = strlen(input) + 19 + 1;
     *output = (char *) malloc(output_length);
     if (*output == NULL) {
-        perror("Memory allocation for date: ");
+        perror("Memory allocation for date");
         return -1;
     }
 
@@ -169,7 +169,7 @@ prefix_id(char * input, char ** output, int id) {
     int output_length = strlen(input) + 12 + 1;
     *output = (char *) malloc(output_length);
     if (*output == NULL) {
-        perror("Memory allocation for prefix: ");
+        perror("Memory allocation for prefix");
         return -1;
     }
 

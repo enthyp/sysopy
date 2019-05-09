@@ -19,7 +19,7 @@ int g_client_queue_ids[MAX_CLIENTS + 1];
 friends_collection g_client_friends;
 int g_server_queue_id = -1;
 msgbuf * g_msg = NULL;
-size_t g_msgsz = sizeof(msgbuf) - sizeof(long) + MAX_MSG_LEN;
+size_t g_msgsz = sizeof(msgcontent);
 
 // prototypes defined in this file
 
@@ -56,9 +56,9 @@ setup(void) {
 	}
 
 	// Get incoming message memory.
-	g_msg = malloc(sizeof(msgbuf) + MAX_MSG_LEN);
+	g_msg = malloc(sizeof(msgbuf));
 	if (g_msg == NULL) {
-		perror(">>> ERR: allocate message memory: ");
+		perror("Allocate message memory");
 		exit(EXIT_FAILURE);
 	}
 
@@ -108,7 +108,7 @@ sigint_handler(int sig) {
 void
 listen(void) {		
 	while (1) {
-        if (recv_msg(g_server_queue_id, g_msg, g_msgsz, STOP, IPC_NOWAIT) != 0) {
+        if (recv_msg(g_server_queue_id, g_msg, g_msgsz, STOP, IPC_NOWAIT | MSG_NOERROR) != 0) {
             if (errno != ENOMSG) {
                 exit(EXIT_FAILURE);
             }
@@ -121,7 +121,6 @@ listen(void) {
 		}
 		
 		dispatch_msg(g_msg);
-		sleep(3);
 	}
 }
 
