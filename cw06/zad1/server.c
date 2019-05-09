@@ -9,7 +9,7 @@
 #include "protocol.h"
 #include "util.h"
 #include "queue.h"
-#include <unistd.h> // sleep
+#include <unistd.h>
 #include <errno.h>
 #include "friends.h"
 
@@ -108,12 +108,20 @@ sigint_handler(int sig) {
 void
 listen(void) {		
 	while (1) {
-	    // TODO: message order!
-		if (recv_msg(g_server_queue_id, g_msg, g_msgsz, 0, MSG_NOERROR) == -1) {
+        if (recv_msg(g_server_queue_id, g_msg, g_msgsz, STOP, IPC_NOWAIT) != 0) {
+            if (errno != ENOMSG) {
+                exit(EXIT_FAILURE);
+            }
+        } else {
+            dispatch_msg(g_msg);
+        }
+
+		if (recv_msg(g_server_queue_id, g_msg, g_msgsz, 0, MSG_NOERROR) != 0) {
 			exit(EXIT_FAILURE);
 		}
 		
-		dispatch_msg(g_msg);	
+		dispatch_msg(g_msg);
+		sleep(3);
 	}
 }
 
@@ -155,7 +163,6 @@ dispatch_init(msgbuf * msg) {
 	sprintf(msg_content, "%d", client_id);
 
 	if (send_msg(client_queue_id, IPC_NOWAIT, client_id, 0, msg_content) != 0) {
-		// TODO: timeout handling? Some resend queue??
 		g_client_queue_ids[client_id] = 0;
 		return;
 	}
