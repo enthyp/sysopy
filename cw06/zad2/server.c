@@ -38,9 +38,7 @@ void dispatch_to_one(char *, int);
 void e_handler(void);
 int find_slot(char *);
 void get_client_list(char *);
-int set_sigusr1_handling(void);
 void sigint_handler(int);
-void sigusr1_handler(int);
 
 // definitions
 
@@ -49,10 +47,6 @@ setup(void) {
     if (base_setup(e_handler, sigint_handler) == -1) {
         exit(EXIT_FAILURE);
     }
-
-//    if (set_sigusr1_handling() == -1) {
-//        exit(EXIT_FAILURE);
-//    }
 
     // Clear global client registers.
     int i;
@@ -93,11 +87,6 @@ setup(void) {
 	    fprintf(stderr, "Failed to setup friends collection.\n");
 	    exit(EXIT_FAILURE);
 	}
-
-//	// Set notifications on incoming messages.
-//    if (set_notification(g_server_queue_des, SIGUSR1) != 0) {
-//        exit(EXIT_FAILURE);
-//    }
 }
 
 void
@@ -140,60 +129,6 @@ sigint_handler(int sig) {
 		exit(EXIT_SUCCESS);
 	else 
 		exit(EXIT_FAILURE);
-}
-
-
-int
-set_sigusr1_handling(void) {
-    sigset_t mask_set;
-    if (sigemptyset(&mask_set) == -1) {
-        perror("Empty mask set");
-        return -1;
-    }
-
-    if (sigaddset(&mask_set, SIGUSR1) == -1) {
-        perror("Add SIGUSR1 to mask");
-        return -1;
-    }
-
-    if (sigprocmask(SIG_UNBLOCK, &mask_set, NULL) == -1) {
-        perror("Modify process signal mask");
-        return -1;
-    }
-
-    struct sigaction act;
-    act.sa_handler = sigusr1_handler;
-    act.sa_flags = 0;
-
-    if (sigemptyset(&(act.sa_mask)) == -1) {
-        perror("Clean signal mask");
-        return -1;
-    }
-
-    if (sigaction(SIGUSR1, &act, NULL) == -1) {
-        perror("Set SIGUSR1 handler");
-        return -1;
-    }
-
-    return 0;
-}
-
-void
-sigusr1_handler(int sig) {
-    // Set notification again.
-    if (set_notification(g_server_queue_des, SIGUSR1) != 0) {
-        exit(EXIT_FAILURE);
-    }
-
-    int mtype = 0;
-    int uid = 0;
-    int res;
-    while ((res = recv_msg(g_server_queue_des, g_msg, g_msg_content, &mtype, &uid, g_msgsz)) == 0) {
-        dispatch_msg(g_msg, mtype, uid);
-    }
-    if (res != EAGAIN) {
-        exit(EXIT_FAILURE);
-    }
 }
 
 void

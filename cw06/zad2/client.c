@@ -55,7 +55,7 @@ setup(void) {
     if (g_server_queue_des == -1) {
         exit(EXIT_FAILURE);
     } else {
-        printf("Server queue name: %s\n Server queue descriptor: %d\n", SERVER_QUEUE_NAME, g_server_queue_des);
+        printf("Server queue name: %s\nServer queue descriptor: %d\n", SERVER_QUEUE_NAME, g_server_queue_des);
     }
 
     g_client_queue_name = rand_name();

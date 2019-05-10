@@ -78,17 +78,3 @@ recv_msg(mqd_t queue_des, char * msg_buf, char * content, int * mtype, int * uid
 
     return 0;
 }
-
-int
-set_notification(mqd_t queue_des, int sig) {
-    struct sigevent sev;
-    sev.sigev_notify = SIGEV_SIGNAL;
-    sev.sigev_signo = sig;
-
-    if (mq_notify(queue_des, &sev) == -1) {
-        perror("Set notification");
-        return -1;
-    }
-
-    return 0;
-}
