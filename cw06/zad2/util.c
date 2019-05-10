@@ -203,16 +203,21 @@ strip_id(char ** string) {
 char *
 rand_name(void) {
     srand(time(NULL));
-    char[] letters = "abcdefghijklmnopqrstuvwxyz";
-    char outcome[NAME_LEN + 1];
+    char letters[] = "abcdefghijklmnopqrstuvwxyz";
+    char * outcome = (char *) malloc((NAME_MAX + 1) * sizeof(char));
+
+    if (outcome == NULL) {
+        fprintf(stderr, "Failed to allocate memory for name.\n");
+        return NULL;
+    }
 
     int i;
-    for (i = 1; i < NAME_LEN; i++) {
+    for (i = 1; i < NAME_MAX; i++) {
         int idx = (int) (rand() / (RAND_MAX + 1.0)) * 26;
         outcome[i] = letters[idx];
     }
 
     outcome[0] = '/';
-    outcome[NAME_LEN] = '\0';
+    outcome[NAME_MAX] = '\0';
     return outcome;
 }

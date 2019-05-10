@@ -15,19 +15,20 @@
 // globals
 
 int g_client_id;
-msq_d g_client_queue_des = (msq_d) -1;
+mqd_t g_client_queue_des = (mqd_t) -1;
+char * g_client_queue_name = NULL;
 char * g_file_input = NULL;
 FILE * g_fp = NULL;
 char * g_input = NULL;
 char * g_msg = NULL;
 size_t g_msgsz = 0;
-int g_running = 1;
-msq_d g_server_queue_des;
 int g_pid = 0;
+int g_running = 1;
+mqd_t g_server_queue_des = (mqd_t) -1;
 
 // prototypes defined in this file
 
-void dispatch_incoming_msg(msgbuf *);
+void dispatch_incoming_msg(char *, int, int);
 void dispatch_outgoing_msg(char *);
 void e_handler(void);
 void from_file(char * file_name);
@@ -49,33 +50,51 @@ setup(void) {
     }
 
     // Get queues.
-	g_server_queue_id = get_queue(0);
-	g_client_queue_id = get_private_queue();
-	if (g_server_queue_id == -1 || g_client_queue_id == -1) {
+    char * server_queue_name = get_server_queue_name();
+    if (server_queue_name == NULL) {
+        exit(EXIT_FAILURE);
+    }
+    g_server_queue_des = get_named_queue(server_queue_name, O_NONBLOCK | O_WRONLY);
+    if (g_server_queue_des == -1) {
+        exit(EXIT_FAILURE);
+    } else {
+        printf("Server queue name: %s\n Server queue descriptor: %d\n", server_queue_name, g_server_queue_des);
+    }
+
+    g_client_queue_name = rand_name();
+	g_client_queue_des = get_named_queue(g_client_queue_name, O_CREAT | O_EXCL | O_RDONLY);
+	if (g_server_queue_des == (mqd_t) -1 || g_client_queue_des == (mqd_t) -1) {
 		exit(EXIT_FAILURE);
 	} else {
-		printf("Server queue ID: %d\nClient queue ID: %d\n", g_server_queue_id, g_client_queue_id);
+		printf("Client queue name: %s\nClient queue descriptor: %d\n", g_client_queue_name, g_client_queue_des);
 	}
 
+    // Get max message size for both queues.
+    size_t server_msgsz = (size_t) get_max_msgsz(g_server_queue_des);
+    if (server_msgsz == -1) {
+        exit(EXIT_FAILURE);
+    }
+
+    size_t client_msgsz = (size_t) get_max_msgsz(g_client_queue_des);
+    if (client_msgsz == -1) {
+        exit(EXIT_FAILURE);
+    }
+
+    g_msgsz = (server_msgsz > client_msgsz) ? client_msgsz : server_msgsz;
+
 	// Get incoming message memory.
-	g_msg = malloc(sizeof(msgbuf));
+	g_msg = (char *) malloc(g_msgsz);
 	if (g_msg == NULL) {
 		perror("Allocate incoming message memory");
 		exit(EXIT_FAILURE);
 	}
-
-	// Get message queue stat memory.
-    g_msqid_ds = malloc(sizeof(struct msqid_ds));
-    if (g_msqid_ds == NULL) {
-        perror("Allocate message queue stat memory");
-        exit(EXIT_FAILURE);
-    }
 }
 
 void
 e_handler(void) {
     if (g_pid != 0) {
-        remove_queue(g_client_queue_id);
+        mq_close(g_server_queue_des);
+        remove_queue(g_client_queue_name, g_client_queue_des);
         if (g_fp != NULL) {
             fclose(g_fp);
         }
@@ -89,9 +108,7 @@ e_handler(void) {
     if (g_input != NULL) {
         free(g_input);
     }
-    if (g_msqid_ds != NULL) {
-        free(g_msqid_ds);
-    }
+
 }
 
 void 
@@ -149,22 +166,19 @@ sigusr1_handler(int sig) {
 
 void
 stop(void) {
-    send_msg(g_server_queue_id, IPC_NOWAIT, STOP, g_client_id, "");
+    send_msg(g_server_queue_des, "", STOP, g_client_id, g_msgsz);
 }
 
 void
 init(void) {
-	char client_queue_id_str[10];
-	sprintf(client_queue_id_str, "%d", g_client_queue_id);
-
 	int res;
-	if ((res = send_msg(g_server_queue_id, IPC_NOWAIT, INIT, g_client_queue_id, client_queue_id_str)) != 0) {
+	if ((res = send_msg(g_server_queue_des, g_client_queue_name, INIT, 0, g_msgsz)) != 0) {
 		switch (res) {
 			case EAGAIN: { 
 				fprintf(stderr, ">>> ERR: failed to register with server: too many connections.\n");
 				break;
 			}	
-			case EIDRM: {
+			case EBADF: {
 				fprintf(stderr, ">>> ERR: failed to register with server: server queue is down.\n");
 				break;
 			}
@@ -177,17 +191,13 @@ init(void) {
 		exit(EXIT_FAILURE);
 	}
 
-	if ((res = recv_msg(g_client_queue_id, g_msg, g_msgsz, 0, 0)) != 0) {
+	int mtype, uid;
+	if ((res = recv_msg(g_client_queue_des, &g_msg, &mtype, &uid, g_msgsz)) != 0) {
 		fprintf(stderr, ">>> ERR: initialize server connection: %s\n", strerror(res));
 		exit(EXIT_FAILURE);
 	}
 
-	errno = 0;
-	g_client_id = (int) strtol((g_msg -> mcontent).mtext, NULL, 10);
-	if (errno != 0) {
-		perror("Convert server response to client ID");
-		exit(EXIT_FAILURE);
-	}
+	g_client_id = uid;
 }
 
 void
@@ -199,11 +209,12 @@ run(void) {
         // Process all incoming messages.
         while (g_running) {
             // Receive commands from the server.
-            if (recv_msg(g_client_queue_id, g_msg, g_msgsz, 0, 0) != 0) {
+            int mtype, uid;
+            if (recv_msg(g_client_queue_des, &g_msg, &mtype, &uid, g_msgsz) != 0) {
                 exit(EXIT_FAILURE);
             }
 
-            dispatch_incoming_msg(g_msg);
+            dispatch_incoming_msg(g_msg, mtype, uid);
         }
     } else {
         g_input = NULL;
@@ -232,7 +243,7 @@ dispatch_outgoing_msg(char * command_text) {
 
     if (cmd.mtype != READ) {
         // Send message.
-        if (send_cmd(g_server_queue_id, IPC_NOWAIT, g_client_id, &cmd) == -1) {
+        if (send_cmd(g_server_queue_des, g_client_id, &cmd, g_msgsz) == -1) {
             fprintf(stderr, ">>> ERR: failed to send message.\n");
             return;
         }
@@ -270,13 +281,13 @@ from_file(char * file_name) {
 }
 
 void
-dispatch_incoming_msg(msgbuf * msg) {
-	if (msg -> mtype == SERVER_STOP) {
+dispatch_incoming_msg(char * msg, int mtype, int uid) {
+	if (mtype == SERVER_STOP) {
 		printf(">>> SERVER STOPPED.\n");
         kill(getppid(), SIGUSR1);
         g_running = 0;
-	} else if (msg -> mtype == g_client_id) {
-		printf(">>> MSG: %s\n", (msg -> mcontent).mtext);
+	} else if (mtype == uid) {
+		printf(">>> MSG: %s\n", msg);
 	} else {
 		fprintf(stderr, ">>> ERR: unknown message type.\n");
 	}

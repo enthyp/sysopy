@@ -37,7 +37,7 @@ get_server_queue_name(void) {
 }
 
 void
-remove_queue(char * queue_name, msq_d queue_des) {
+remove_queue(char * queue_name, mqd_t queue_des) {
     mq_close(queue_des);
 
     if (mq_unlink(queue_name) == -1) {
@@ -52,7 +52,7 @@ remove_queue(char * queue_name, msq_d queue_des) {
 }
 
 long
-get_max_msgsz(msq_d queue_des) {
+get_max_msgsz(mqd_t queue_des) {
     struct mq_attr attr;
     if (mq_getattr(queue_des, &attr) == -1) {
         perror("Get message queue attributes");
@@ -63,7 +63,7 @@ get_max_msgsz(msq_d queue_des) {
 }
 
 int
-send_msg(msq_d queue_des,  char * content, int mtype, int uid, size_t max_msg_size) {
+send_msg(mqd_t queue_des,  char * content, int mtype, int uid, size_t max_msg_size) {
     char * msg = (char *) malloc(max_msg_size);
     if (msg == NULL) {
         fprintf(stderr, "Failed to allocate memory for outgoing message.\n");
@@ -86,7 +86,7 @@ send_msg(msq_d queue_des,  char * content, int mtype, int uid, size_t max_msg_si
 }
 
 int
-recv_msg(msq_d queue_des, char ** content, int * mtype, int * uid, size_t max_msg_size) {
+recv_msg(mqd_t queue_des, char ** content, int * mtype, int * uid, size_t max_msg_size) {
     char * msg = (char *) malloc(max_msg_size);
     if (msg == NULL) {
         fprintf(stderr, "Failed to allocate memory for incoming message.\n");
@@ -113,7 +113,7 @@ recv_msg(msq_d queue_des, char ** content, int * mtype, int * uid, size_t max_ms
 }
 
 int
-set_notification(msq_d queue_des, int sig) {
+set_notification(mqd_t queue_des, int sig) {
     struct sigevent sev;
     sev.sigev_notify = SIGEV_SIGNAL;
     sev.sigev_signo = sig;
