@@ -14,10 +14,10 @@ CFLAGS := -Wall -g
 all: $(TARGET)
 
 client: $(CLIENT_OBJ)
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) -lrt $^ -o $@
 
 server: $(SERVER_OBJ)
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) -lrt $^ -o $@
 
 -include $(DEPS)
 
@@ -40,15 +40,5 @@ $(BUILD_DIR):
 clean:
 	@rm -rf $(TARGET) $(BUILD_DIR)
 
-.PHONY:
-teardown: # remove all user queues
-	@q_id=`ipcs -q | awk -v USER=$$USER '{if ($$3==USER) print $$2}'`; \
-	if [[ ! -z "$$q_id" ]]; then \
-		for id in $$q_id; do \
-			ipcrm msg $$id; \
-		done; \
-		echo "All user queues removed."; \
-	else \
-		echo "Queue removal: no user queues found."; \
-	fi
-
+# .PHONY:
+# teardown: # remove all user queues
