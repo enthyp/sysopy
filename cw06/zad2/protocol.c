@@ -4,6 +4,8 @@
 #include "queue.h"
 #include "util.h"
 
+char * SERVER_QUEUE_NAME = "/server_queue";
+
 msg
 process_cmd(char * command_text) {
     // Strip newline character.
@@ -63,10 +65,10 @@ process_cmd(char * command_text) {
 }
 
 int
-send_cmd(mqd_t queue_des, int uid, msg * command, size_t max_msg_size) {
+send_cmd(mqd_t queue_des, int uid, char * msg_buf, msg * command, size_t max_msg_size) {
     if (command -> mtype == -1) {
         return -1;
     }
 
-    return send_msg(queue_des, command -> mtext, command -> mtype, uid, max_msg_size);
+    return send_msg(queue_des, msg_buf, command -> mtext, command -> mtype, uid, max_msg_size);
 }

@@ -17,9 +17,9 @@ friends_collection g_client_friends;
 mqd_t g_client_queue_des[MAX_CLIENTS + 1];
 char g_client_queue_names[MAX_CLIENTS + 1][NAME_LEN + 1];
 char * g_msg = NULL;
+char * g_msg_content = NULL;
 size_t g_msgsz = 0;
 mqd_t g_server_queue_des = (mqd_t) -1;
-char * g_server_queue_name = NULL;
 
 
 // prototypes defined in this file
@@ -50,9 +50,9 @@ setup(void) {
         exit(EXIT_FAILURE);
     }
 
-    if (set_sigusr1_handling() == -1) {
-        exit(EXIT_FAILURE);
-    }
+//    if (set_sigusr1_handling() == -1) {
+//        exit(EXIT_FAILURE);
+//    }
 
     // Clear global client registers.
     int i;
@@ -62,17 +62,11 @@ setup(void) {
     }
 
 	// Get server queue.
-	g_server_queue_name = get_server_queue_name();
-    if (g_server_queue_name == NULL) {
-        exit(EXIT_FAILURE);
-    }
-
-    // BTW: server queue could easily be opened in blocking mode, no need for notifications then.
-	g_server_queue_des = get_named_queue(g_server_queue_name, O_CREAT | O_EXCL | O_NONBLOCK | O_RDONLY);
+	g_server_queue_des = get_named_queue(SERVER_QUEUE_NAME, O_CREAT | O_EXCL | O_RDONLY);
 	if (g_server_queue_des == -1) {
 		exit(EXIT_FAILURE);
 	} else {
-		printf("Server queue name: %s\n Server queue descriptor: %d\n", g_server_queue_name, g_server_queue_des);
+		printf("Server queue name: %s\n Server queue descriptor: %d\n", SERVER_QUEUE_NAME, g_server_queue_des);
 	}
 
 	// Get max message size of server queue.
@@ -88,27 +82,33 @@ setup(void) {
 		exit(EXIT_FAILURE);
 	}
 
+    g_msg_content = (char *) malloc(g_msgsz - 2 * sizeof(char));
+    if (g_msg_content == NULL) {
+        perror("Allocate message memory");
+        exit(EXIT_FAILURE);
+    }
+
 	// Allocate friends memory.
 	if (setup_friends(&g_client_friends, MAX_CLIENTS + 1) == -1) {
 	    fprintf(stderr, "Failed to setup friends collection.\n");
 	    exit(EXIT_FAILURE);
 	}
 
-	// Set notifications on incoming messages.
-    if (set_notification(g_server_queue_des, SIGUSR1) != 0) {
-        exit(EXIT_FAILURE);
-    }
+//	// Set notifications on incoming messages.
+//    if (set_notification(g_server_queue_des, SIGUSR1) != 0) {
+//        exit(EXIT_FAILURE);
+//    }
 }
 
 void
 e_handler(void) {
-    remove_queue(g_server_queue_name, g_server_queue_des);
+    remove_queue(SERVER_QUEUE_NAME, g_server_queue_des);
     teardown_friends(&g_client_friends);
     if (g_msg != NULL) {
         free(g_msg);
     }
-    if (g_server_queue_name != NULL) {
-        free(g_server_queue_name);
+    if (g_msg_content != NULL) {
+        free(g_msg_content);
     }
 }
 
@@ -119,7 +119,7 @@ sigint_handler(int sig) {
 	int i, count = 0;
 	for (i = 1; i <= MAX_CLIENTS; i++) {
 		if (g_client_queue_des[i] != (mqd_t) -1 &&
-		    send_msg(g_client_queue_des[i], "", SERVER_STOP, i, g_msgsz) == 0) {
+		    send_msg(g_client_queue_des[i], g_msg, "", SERVER_STOP, i, g_msgsz) == 0) {
 			count++;
 		}
 	}
@@ -127,7 +127,7 @@ sigint_handler(int sig) {
     while (count > 0) {
 	    int res;
 	    int mtype, uid;
-		if ((res = recv_msg(g_server_queue_des, &g_msg, &mtype, &uid, g_msgsz)) == 0 &&
+		if ((res = recv_msg(g_server_queue_des, g_msg, g_msg_content, &mtype, &uid, g_msgsz)) == 0 &&
                 (mtype == STOP)) {
 			count--;
 		} else {
@@ -188,7 +188,7 @@ sigusr1_handler(int sig) {
     int mtype = 0;
     int uid = 0;
     int res;
-    while ((res = recv_msg(g_server_queue_des, &g_msg, &mtype, &uid, g_msgsz)) == 0) {
+    while ((res = recv_msg(g_server_queue_des, g_msg, g_msg_content, &mtype, &uid, g_msgsz)) == 0) {
         dispatch_msg(g_msg, mtype, uid);
     }
     if (res != EAGAIN) {
@@ -199,8 +199,11 @@ sigusr1_handler(int sig) {
 void
 listen(void) {
     while (1) {
-        // Assumption: no client sends message to queue before notification is set for the first time.
-        pause();
+        int mtype = 0;
+        int uid = 0;
+        if (recv_msg(g_server_queue_des, g_msg, g_msg_content, &mtype, &uid, g_msgsz) == 0) {
+            dispatch_msg(g_msg_content, mtype, uid);
+        }
     }
 }
 
@@ -238,7 +241,7 @@ dispatch_init(char * msg, int uid) {
 	g_client_queue_des[client_id] = client_queue_des;
     strcpy(g_client_queue_names[client_id], msg);
 
-	if (send_msg(client_queue_des, "", 0, client_id, g_msgsz) != 0) {
+	if (send_msg(client_queue_des, g_msg, "", client_id, client_id, g_msgsz) != 0) {
 		g_client_queue_des[client_id] = (mqd_t) -1;
         g_client_queue_names[client_id][0] = '\0';
 		return;
@@ -253,7 +256,7 @@ find_slot(char * name) {
 		if (slot == -1 && g_client_queue_des[i] == (mqd_t) -1) {
 			slot = i;
 		}
-		if (strcmp(g_client_queue_names[i], name) == 0) {
+		if (g_client_queue_names[i][0] != '\0' && strcmp(g_client_queue_names[i], name) == 0) {
 			exists = 1;
 		}
 	}
@@ -279,7 +282,7 @@ dispatch_echo(char * msg, int uid) {
     if (prefix_date(msg, &response) == -1) {
         return;
     }
-    send_msg(g_client_queue_des[uid], response, 0, uid, g_msgsz);
+    send_msg(g_client_queue_des[uid], g_msg, response, uid, uid, g_msgsz);
     free(response);
 }
 
@@ -289,7 +292,7 @@ dispatch_list(char * msg, int uid) {
 
     char response[256] = {'\0'};
     get_client_list(response);
-    send_msg(g_client_queue_des[uid], response, 0, 0, g_msgsz);
+    send_msg(g_client_queue_des[uid], g_msg, response, uid, uid, g_msgsz);
 }
 
 void
@@ -383,7 +386,7 @@ dispatch_to_all(char * msg, int uid) {
     int i;
     for (i = 1; i <= MAX_CLIENTS; i++) {
         if (uid != i && g_client_queue_des[i] != (mqd_t) -1) {
-            send_msg(g_client_queue_des[i], response, 0, i, g_msgsz);
+            send_msg(g_client_queue_des[i], g_msg, response, i, i, g_msgsz);
         }
     }
 
@@ -409,7 +412,7 @@ dispatch_to_friends(char * msg, int uid) {
     int friend_id = get_friend(&g_client_friends, uid);
     while (friend_id != -1) {
         if (g_client_queue_des[friend_id] != (mqd_t) -1) {
-            send_msg(g_client_queue_des[friend_id], response, 0, friend_id, g_msgsz);
+            send_msg(g_client_queue_des[friend_id], g_msg, response, friend_id, friend_id, g_msgsz);
         }
 
         friend_id = get_friend(&g_client_friends, uid);
@@ -445,7 +448,7 @@ dispatch_to_one(char * msg, int uid) {
     }
 
     if (g_client_queue_des[id] != (mqd_t) -1) {
-        send_msg(g_client_queue_des[id], response, 0, id, g_msgsz);
+        send_msg(g_client_queue_des[id], g_msg, response, id, id, g_msgsz);
     }
 
     free(mid_response);

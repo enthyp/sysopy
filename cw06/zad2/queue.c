@@ -11,29 +11,11 @@
 
 mqd_t
 get_named_queue(char * queue_name, int flags) {
-    int queue_des = mq_open(queue_name, flags, S_IRUSR | S_IWUSR, NULL);
+    mqd_t queue_des = mq_open(queue_name, flags, S_IRUSR | S_IWUSR, NULL);
+    if (queue_des == (mqd_t) -1) {
+        perror("Get named queue");
+    }
     return queue_des;
-}
-
-char *
-get_server_queue_name(void) {
-    char * home = getenv("HOME");
-    if (home == NULL) {
-        fprintf(stderr, "No HOME variable was found.\n");
-        return NULL;
-    }
-
-    int home_length = strlen(home);
-    char * queue_name = (char *) malloc((home_length + 1 + 1) * sizeof(char));
-    if (queue_name == NULL) {
-        fprintf(stderr, "Failed to allocate memory for server queue name.\n");
-        return NULL;
-    }
-
-    strcpy(queue_name, "/");
-    strcat(queue_name, home);
-
-    return queue_name;
 }
 
 void
@@ -63,52 +45,37 @@ get_max_msgsz(mqd_t queue_des) {
 }
 
 int
-send_msg(mqd_t queue_des,  char * content, int mtype, int uid, size_t max_msg_size) {
-    char * msg = (char *) malloc(max_msg_size);
-    if (msg == NULL) {
-        fprintf(stderr, "Failed to allocate memory for outgoing message.\n");
-        return -1;
-    }
+send_msg(mqd_t queue_des, char * msg_buf, char * content, int mtype, int uid, size_t max_msg_size) {
+    msg_buf[0] = (char) mtype;
+    msg_buf[1] = (char) uid;
 
-    msg[0] = (char) mtype;
-    msg[1] = (char) uid;
-    strncpy(msg + 2, content, max_msg_size - 2);
-    msg[max_msg_size - 1] = '\0';
+    strncpy(msg_buf + 2, content, max_msg_size - 2);
+    msg_buf[max_msg_size - 1] = '\0';
 
-    if (mq_send(queue_des, msg, strlen(msg), (mtype == STOP) ? 1 : 0) == -1) {
+    if (mq_send(queue_des, msg_buf, strlen(msg_buf), (mtype == STOP) ? 1 : 0) == -1) {
         perror("Send message");
-        free(msg);
         return -1;
     }
 
-    free(msg);
     return 0;
 }
 
 int
-recv_msg(mqd_t queue_des, char ** content, int * mtype, int * uid, size_t max_msg_size) {
-    char * msg = (char *) malloc(max_msg_size);
-    if (msg == NULL) {
-        fprintf(stderr, "Failed to allocate memory for incoming message.\n");
-        return -1;
+recv_msg(mqd_t queue_des, char * msg_buf, char * content, int * mtype, int * uid, size_t max_msg_size) {
+    ssize_t nr;
+    if ((nr = mq_receive(queue_des, msg_buf, max_msg_size, NULL)) == -1) {
+        return errno;
     }
 
-    if (mq_receive(queue_des, msg, max_msg_size, NULL) == -1) {
-        int err = errno;
-        free(msg);
-        return err;
+    *mtype = (int) msg_buf[0];
+    *uid = (int) msg_buf[1];
+    strncpy(content, msg_buf + 2, nr - 2);
+    if (nr == max_msg_size) {
+        content[max_msg_size -3] = '\0';
+    } else {
+        content[nr - 2] = '\0';
     }
 
-    *mtype = (int) msg[0];
-    *uid = (int) msg[1];
-
-    *content = (char *) malloc(max_msg_size - 2);
-    if (*content == NULL) {
-        fprintf(stderr, "Failed to allocate memory for incoming message content.\n");
-        return -1;
-    }
-
-    strcpy(*content, msg + 2);
     return 0;
 }
 

@@ -9,6 +9,7 @@
 #include <time.h>
 #include <stdlib.h>
 #include "util.h"
+#include "protocol.h"
 
 // prototypes defined in this file
 
@@ -204,7 +205,7 @@ char *
 rand_name(void) {
     srand(time(NULL));
     char letters[] = "abcdefghijklmnopqrstuvwxyz";
-    char * outcome = (char *) malloc((NAME_MAX + 1) * sizeof(char));
+    char * outcome = (char *) malloc((NAME_LEN + 1) * sizeof(char));
 
     if (outcome == NULL) {
         fprintf(stderr, "Failed to allocate memory for name.\n");
@@ -212,12 +213,12 @@ rand_name(void) {
     }
 
     int i;
-    for (i = 1; i < NAME_MAX; i++) {
-        int idx = (int) (rand() / (RAND_MAX + 1.0)) * 26;
+    for (i = 1; i < NAME_LEN; i++) {
+        int idx = (int) ((rand() / (RAND_MAX + 1.0)) * 26);
         outcome[i] = letters[idx];
     }
 
     outcome[0] = '/';
-    outcome[NAME_MAX] = '\0';
+    outcome[NAME_LEN] = '\0';
     return outcome;
 }

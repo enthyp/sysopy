@@ -13,8 +13,8 @@ long get_max_msgsz(mqd_t queue_des);
 
 int set_notification(mqd_t queue_des, int sig);
 
-int recv_msg(mqd_t queue_des, char ** content, int * mtype, int * uid, size_t max_msg_size);
+int recv_msg(mqd_t queue_des, char * msg_buf, char * content, int * mtype, int * uid, size_t max_msg_size);
 
-int send_msg(mqd_t queue_des, char * content, int mtype, int uid, size_t max_msg_size);
+int send_msg(mqd_t queue_des, char * msg_buf, char * content, int mtype, int uid, size_t max_msg_size);
 
 #endif // QUEUE_H

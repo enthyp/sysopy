@@ -21,6 +21,7 @@ char * g_file_input = NULL;
 FILE * g_fp = NULL;
 char * g_input = NULL;
 char * g_msg = NULL;
+char * g_msg_content = NULL;
 size_t g_msgsz = 0;
 int g_pid = 0;
 int g_running = 1;
@@ -50,15 +51,11 @@ setup(void) {
     }
 
     // Get queues.
-    char * server_queue_name = get_server_queue_name();
-    if (server_queue_name == NULL) {
-        exit(EXIT_FAILURE);
-    }
-    g_server_queue_des = get_named_queue(server_queue_name, O_NONBLOCK | O_WRONLY);
+    g_server_queue_des = get_named_queue(SERVER_QUEUE_NAME, O_NONBLOCK | O_WRONLY);
     if (g_server_queue_des == -1) {
         exit(EXIT_FAILURE);
     } else {
-        printf("Server queue name: %s\n Server queue descriptor: %d\n", server_queue_name, g_server_queue_des);
+        printf("Server queue name: %s\n Server queue descriptor: %d\n", SERVER_QUEUE_NAME, g_server_queue_des);
     }
 
     g_client_queue_name = rand_name();
@@ -88,6 +85,12 @@ setup(void) {
 		perror("Allocate incoming message memory");
 		exit(EXIT_FAILURE);
 	}
+
+    g_msg_content = (char *) malloc(g_msgsz - 2);
+    if (g_msg_content == NULL) {
+        perror("Allocate message memory");
+        exit(EXIT_FAILURE);
+    }
 }
 
 void
@@ -102,8 +105,14 @@ e_handler(void) {
             free(g_file_input);
         }
     }
+    if (g_client_queue_name != NULL) {
+        free(g_client_queue_name);
+    }
     if (g_msg != NULL) {
         free(g_msg);
+    }
+    if (g_msg_content != NULL) {
+        free(g_msg_content);
     }
     if (g_input != NULL) {
         free(g_input);
@@ -166,13 +175,13 @@ sigusr1_handler(int sig) {
 
 void
 stop(void) {
-    send_msg(g_server_queue_des, "", STOP, g_client_id, g_msgsz);
+    send_msg(g_server_queue_des, g_msg, "", STOP, g_client_id, g_msgsz);
 }
 
 void
 init(void) {
 	int res;
-	if ((res = send_msg(g_server_queue_des, g_client_queue_name, INIT, 0, g_msgsz)) != 0) {
+	if ((res = send_msg(g_server_queue_des, g_msg, g_client_queue_name, INIT, INIT, g_msgsz)) != 0) {
 		switch (res) {
 			case EAGAIN: { 
 				fprintf(stderr, ">>> ERR: failed to register with server: too many connections.\n");
@@ -192,7 +201,7 @@ init(void) {
 	}
 
 	int mtype, uid;
-	if ((res = recv_msg(g_client_queue_des, &g_msg, &mtype, &uid, g_msgsz)) != 0) {
+	if ((res = recv_msg(g_client_queue_des, g_msg, g_msg_content, &mtype, &uid, g_msgsz)) != 0) {
 		fprintf(stderr, ">>> ERR: initialize server connection: %s\n", strerror(res));
 		exit(EXIT_FAILURE);
 	}
@@ -210,11 +219,11 @@ run(void) {
         while (g_running) {
             // Receive commands from the server.
             int mtype, uid;
-            if (recv_msg(g_client_queue_des, &g_msg, &mtype, &uid, g_msgsz) != 0) {
+            if (recv_msg(g_client_queue_des, g_msg, g_msg_content, &mtype, &uid, g_msgsz) != 0) {
                 exit(EXIT_FAILURE);
             }
 
-            dispatch_incoming_msg(g_msg, mtype, uid);
+            dispatch_incoming_msg(g_msg_content, mtype, uid);
         }
     } else {
         g_input = NULL;
@@ -243,7 +252,7 @@ dispatch_outgoing_msg(char * command_text) {
 
     if (cmd.mtype != READ) {
         // Send message.
-        if (send_cmd(g_server_queue_des, g_client_id, &cmd, g_msgsz) == -1) {
+        if (send_cmd(g_server_queue_des, g_client_id, g_msg, &cmd, g_msgsz) == -1) {
             fprintf(stderr, ">>> ERR: failed to send message.\n");
             return;
         }

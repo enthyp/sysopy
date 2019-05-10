@@ -8,8 +8,10 @@
 #define MAX_MSG_LEN 1024
 #define MAX_CLIENTS 64
 
+char * SERVER_QUEUE_NAME;
+
 typedef enum {
-    INIT,
+    INIT = 1,
     ECHO,
     LIST,
     FRIENDS,
@@ -30,6 +32,6 @@ typedef struct {
 
 msg process_cmd(char * command_text);
 
-int send_cmd(mqd_t queue_des, int uid, msg * command, size_t max_msg_size);
+int send_cmd(mqd_t queue_des, int uid, char * msg_buf, msg * command, size_t max_msg_size);
 
 #endif // PROTOCOL_H
