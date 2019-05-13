@@ -119,6 +119,18 @@ create(int max_units, int max_weight) {
 
 int
 open_belt(void) {
+    key_t sem_key = get_key(1);
+    if (sem_key == (key_t) -1) {
+        return -1;
+    }
+
+    if ((g_semaphore = semget(sem_key, 1, 0)) == -1) {
+        perror("Get semaphore ID");
+        return -1;
+    } else {
+        printf("Semaphore ID: %d\n", g_semaphore);
+    }
+
     key_t interface_key = get_key(2);
     if (interface_key == (key_t) -1) {
         return -1;
@@ -169,7 +181,32 @@ cargo_unit
 take(void);
 
 int
+release(void) {
+    struct sembuf sb = {
+            .sem_num = 0,
+            .sem_op = 1,
+            .sem_flg = 0 };
+
+    if (semop(g_semaphore, &sb, 1) == -1) {
+        perror("Increment semaphore");
+        return -1;
+    }
+
+    return 0;
+}
+
+int
 lock(void) {
+    struct sembuf sb = {
+            .sem_num = 0,
+            .sem_op = -1,
+            .sem_flg = SEM_UNDO };
+
+    if (semop(g_semaphore, &sb, 1) == -1) {
+        perror("Decrement semaphore");
+        return -1;
+    }
+
     return 0;
 }
 

@@ -9,7 +9,15 @@ main(void) {
         exit(EXIT_FAILURE);
     }
 
+    if (lock() == -1) {
+        exit(EXIT_FAILURE);
+    }
+
     sleep(1);
+
+    if (release() == -1) {
+        exit(EXIT_FAILURE);
+    }
 
     if (close_belt() == -1) {
         exit(EXIT_FAILURE);
