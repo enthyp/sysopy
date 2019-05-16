@@ -23,6 +23,6 @@ int close_belt(void);
 
 int delete_sem(void);
 
-int delete(void);
+int delete_mem(void);
 
 #endif // CONVEYOR_BELT_H

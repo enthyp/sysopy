@@ -457,11 +457,7 @@ delete_sem(void) {
 }
 
 int
-delete(void) {
-    if (delete_sem() == -1) {
-        return -1;
-    }
-
+delete_mem(void) {
     if (shmdt(g_queue) == -1) {
         perror("Detach conveyor belt queue shared memory");
         return -1;

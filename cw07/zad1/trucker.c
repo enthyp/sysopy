@@ -77,7 +77,10 @@ load_truck(void) {
         if (g_off_cargo -> weight > g_max_truck_load) {
             // Belt was blocked by this cargo unit.
             fprintf(stderr, "Cargo unit blocked the belt.\n");
-            return 0;
+            if (delete_sem() == -1) {
+                return -1;
+            }
+            return 1;
         }
 
         if (g_current_truck_load + g_off_cargo -> weight <= g_max_truck_load) {
@@ -156,7 +159,8 @@ main(int argc, char * argv[]) {
     g_off_cargo = malloc(sizeof(cargo_unit));
     if (g_off_cargo == NULL) {
         fprintf(stderr, "Failed to allocate cargo memory.\n");
-        delete();
+        delete_sem();
+        delete_mem();
         exit(EXIT_FAILURE);
     }
 
@@ -164,13 +168,18 @@ main(int argc, char * argv[]) {
         int res;
         if ((res = load_truck()) == -1) {
             // Error condition.
-            delete();
+            delete_sem();
+            delete_mem();
             free(g_off_cargo);
             exit(EXIT_FAILURE);
         } else if (res == 1) {
             // End of messages after SIGINT.
             break;
         }
+    }
+
+    if (delete_mem() == -1) {
+        exit(EXIT_FAILURE);
     }
 
     free(g_off_cargo);
