@@ -40,3 +40,17 @@ $(BUILD_DIR):
 clean:
 	@rm -rf $(TARGET) $(BUILD_DIR)
 
+.PHONY:
+teardown:
+	@for i in `ipcs -m | grep 666 | awk '{print $$2}'`; do \
+		ipcrm -m $$i; \
+	done; \
+	echo "Memory removed."; \
+	for i in `ipcs -q | tail -n+4 | head -n+1 | awk '{print $$2}'`; do \
+		ipcrm -q $$i; \
+	done; \
+	echo "Queues removed."; \
+	for i in `ipcs -s | grep 666 | awk '{print $$2}'`; do \
+		ipcrm -s $$i; \
+	done; \
+	echo "Semaphores removed."
