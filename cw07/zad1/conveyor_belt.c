@@ -28,7 +28,10 @@ typedef struct {
 queue * g_queue = NULL;
 cargo_unit * g_belt = NULL;
 
-int g_semaphores = -1; // WRITE (count, weight) READ: (count) ACCESS (count)
+extern int g_mode;          // 0/1 - loader/trucker
+extern int g_locked;        // whether trucker process holds the lock or not (loader ignores this one)
+extern int g_after;         // whether trucker process received SIGINT or not (loader ignores this one)
+int g_semaphores = -1;      // WRITE (count, weight) READ: (count) ACCESS (count)
 int g_queue_mem_seg = -1;
 int g_belt_mem_seg = -1;
 
@@ -221,8 +224,11 @@ write_lock(int weight) {
     };
 
     if (semop(g_semaphores, sbs, 2) == -1) {
-        if (errno == EINVAL) {
-            return 1;
+        int err = errno;
+        if (g_mode == 0) {
+            if (err == EINVAL || errno == EIDRM) {
+                return 1;
+            }
         }
         perror("Lock write semaphore");
         return -1;
@@ -232,15 +238,19 @@ write_lock(int weight) {
 }
 
 int
-read_lock(int flag) {
-    struct sembuf sb = { .sem_num = 2, .sem_op = -1, .sem_flg = flag };
+read_lock(void) {
+    struct sembuf sb = { .sem_num = 2, .sem_op = -1, .sem_flg = 0 };
 
     if (semop(g_semaphores, &sb, 1) == -1) {
-        if (errno == EAGAIN) {
-            return 1;
-        } else if (errno == EINTR) {
-            return 2;
+        int err = errno;
+        if (g_mode == 1) {
+            if (g_after && (err == EINVAL || err == EIDRM)) {
+                return 0;
+            } else if (err == EINTR) {
+                return 1;
+            }
         }
+
         perror("Lock read semaphore");
         return -1;
     }
@@ -253,13 +263,23 @@ access_lock(void) {
     struct sembuf sb = { .sem_num = 3, .sem_op = -1, .sem_flg = 0 };
 
     if (semop(g_semaphores, &sb, 1) == -1) {
-        if (errno == EINVAL) {
-            return 1;
-        } else if (errno == EINTR) {
-            return 2;
+        int err = errno;
+        if (g_mode == 0) {
+            if (err == EINVAL || err == EIDRM) {
+                return 1;
+            }
+        } else if (g_mode == 1) {
+            if (g_after && (err == EINVAL || err == EIDRM)) {
+                return 0;
+            } else if (err == EINTR) {
+                return 1;
+            }
         }
+
         perror("Lock access semaphore");
         return -1;
+    } else if (g_mode == 1) {
+        g_locked = 1;
     }
 
     return 0;
@@ -273,6 +293,13 @@ write_release(int weight) {
     };
 
     if (semop(g_semaphores, sbs, 2) == -1) {
+        if (g_mode == 1) {
+            if (g_after == 1) {
+                if (errno == EINVAL || errno == EIDRM || errno == EINTR) {
+                    return 0;
+                }
+            }
+        }
         perror("Release write semaphore");
         return -1;
     }
@@ -285,6 +312,11 @@ read_release(void) {
     struct sembuf sb = { .sem_num = 2, .sem_op = 1, .sem_flg = 0 };
 
     if (semop(g_semaphores, &sb, 1) == -1) {
+        if (g_mode == 0) {
+            if (errno == EINVAL || errno == EIDRM) {
+                return 1;
+            }
+        }
         perror("Release read semaphore");
         return -1;
     }
@@ -297,34 +329,22 @@ access_release(void) {
     struct sembuf sb = { .sem_num = 3, .sem_op = 1, .sem_flg = 0 };
 
     if (semop(g_semaphores, &sb, 1) == -1) {
+        if (g_mode == 1) {
+            if (g_after == 1) {
+                if (errno == EINVAL || errno == EIDRM || errno == EINTR) {
+                    return 0;
+                }
+            }
+        } else if (g_mode == 0) {
+            if (errno == EINVAL || errno == EIDRM) {
+                return 1;
+            }
+        }
+
         perror("Release access semaphore");
         return -1;
-    }
-
-    return 0;
-}
-
-int
-lock(void) {
-    union semun sem;
-    sem.val = 0;
-
-    if (semctl(g_semaphores, 0, SETVAL, sem) == -1) {
-        perror("Lock for writing");
-        return -1;
-    }
-
-    return 0;
-}
-
-int
-release(void) {
-    union semun sem;
-    sem.val = g_queue -> size - g_queue -> current_units;
-
-    if (semctl(g_semaphores, 0, SETVAL, sem) == -1) {
-        perror("Release for writing");
-        return -1;
+    } else if (g_mode == 1) {
+        g_locked = 0;
     }
 
     return 0;
@@ -343,7 +363,6 @@ enqueue(int weight) {
         write_release(weight);
         return -1;
     } else if (res == 1) {
-        write_release(weight);
         return 1;
     }
 
@@ -375,16 +394,13 @@ enqueue(int weight) {
 }
 
 int
-dequeue(cargo_unit * cargo, int immediate) {
+dequeue(cargo_unit * cargo) {
     int res;
-    int flag = immediate ? IPC_NOWAIT : 0;
 
-    if ((res = read_lock(flag)) == -1) {
+    if ((res = read_lock()) == -1) {
         return -1;
     } else if (res == 1) {
         return 1;
-    } else if (res == 2) {
-        return 2;
     }
 
     if ((res = access_lock()) == -1) {
@@ -393,8 +409,9 @@ dequeue(cargo_unit * cargo, int immediate) {
     } else if (res == 1) {
         read_release();
         return 1;
-    } else if (res == 2) {
-        read_release();
+    }
+
+    if (g_after && g_queue -> current_units == 0) {
         return 2;
     }
 
@@ -430,9 +447,18 @@ close_belt(void) {
 }
 
 int
-delete(void) {
+delete_sem(void) {
     if (semctl(g_semaphores, 0, IPC_RMID) == -1) {
         perror("Delete semaphores");
+        return -1;
+    }
+
+    return 0;
+}
+
+int
+delete(void) {
+    if (delete_sem() == -1) {
         return -1;
     }
 

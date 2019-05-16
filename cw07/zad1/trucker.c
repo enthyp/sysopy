@@ -10,8 +10,12 @@ typedef enum {
     LOADED
 } cargo_state;
 
-int g_running = 1;
-int g_mode = 0;
+int g_mode = 1;     // trucker mode
+int g_after = 0;    // after SIGINT?
+int g_locked = 0;   // does trucker hold access lock?
+// BTW: it does not work 100% correctly since this flag and semaphore are
+// not being set completely simultaneously...
+
 int g_max_truck_load = -1;
 int g_current_truck_load = 0;
 int g_current_truck_count = 0;
@@ -25,40 +29,48 @@ void handle_cargo(void);
 void
 sigint_handler(int sig) {
     printf(">>> SIGINT received!\n");
-    if (lock() == -1) {
+    g_after = 1;
+    if (!g_locked && access_lock() == -1) {
         exit(EXIT_FAILURE);
     }
-    printf(">>> Belt locked.\n");
 
-    g_running = 0;
-    g_mode = 1;
+    if (delete_sem() == -1) {
+        exit(EXIT_FAILURE);
+    }
 }
 
 int
 load_truck(void) {
+    int done = 0;
     g_current_truck_count = 0;
     g_current_truck_load = 0;
-    if (release() == -1) {
-        exit(EXIT_FAILURE);
-    }
     printf(">>> Empty truck arrives.\n");
+
+    if (!g_after && g_locked) {
+        if (access_release() == -1) {
+            exit(EXIT_FAILURE);
+        } else {
+            printf("Belt opened.\n");
+        }
+    }
 
     do {
         if (g_cargo_state == LOADED) {
-            if (g_mode == 0) {
+            if (!g_after) {
                 printf(">>> Awaiting load...\n");
             }
-            int take_return = dequeue(g_off_cargo, g_mode);
+            int take_return = dequeue(g_off_cargo);
 
             if (take_return == -1) {
                 // Failure receiving the message - belt state may be corrupt.
                 return -1;
             } else if (take_return == 1) {
-                // No more messages after SIGINT.
-                break;
-            } else if (take_return == 2) {
                 // Interrupted while waiting to acquire read lock.
                 continue;
+            } else if (take_return == 2) {
+                // No more messages after SIGINT.
+                done = 1;
+                break;
             }
         }
 
@@ -78,14 +90,22 @@ load_truck(void) {
             break;
         }
 
-        sleep(1);
+        //sleep(1);
     } while (1);
+    printf(">>> Truck departs.\n");
 
-    if (lock() == -1) {
-        exit(EXIT_FAILURE);
+    if (!g_after) {
+        if (access_lock() == -1) {
+            exit(EXIT_FAILURE);
+        } else {
+            g_locked = 1;
+        }
     }
 
-    printf(">>> Truck departs.\n");
+    if (done) {
+        return 1;
+    }
+
     return 0;
 }
 
@@ -140,17 +160,17 @@ main(int argc, char * argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    while (g_running) {
-        if (load_truck() == -1) {
+    while (1) {
+        int res;
+        if ((res = load_truck()) == -1) {
+            // Error condition.
             delete();
             free(g_off_cargo);
             exit(EXIT_FAILURE);
+        } else if (res == 1) {
+            // End of messages after SIGINT.
+            break;
         }
-    }
-
-    if (delete() == -1) {
-        free(g_off_cargo);
-        exit(EXIT_FAILURE);
     }
 
     free(g_off_cargo);

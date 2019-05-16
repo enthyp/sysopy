@@ -4,7 +4,10 @@
 #include "conveyor_belt.h"
 #include "util.h"
 
+int g_mode = 0; // loader mode
 int g_running = 1;
+int g_locked = 0; // used by conveyor_belt.c in trucker process only!
+int g_after = 0; // used by conveyor_belt.c in trucker process only!
 
 void
 sigint_handler(int sig) {

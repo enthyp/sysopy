@@ -13,13 +13,15 @@ int open_belt(void);
 
 int enqueue(int weight);
 
-int dequeue(cargo_unit * cargo, int immediate);
+int dequeue(cargo_unit * cargo);
 
-int lock(void);
+int access_lock(void);
 
-int release(void);
+int access_release(void);
 
 int close_belt(void);
+
+int delete_sem(void);
 
 int delete(void);
 
