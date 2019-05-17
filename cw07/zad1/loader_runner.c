@@ -36,7 +36,7 @@ main(int argc, char * argv[]) {
 
     int i;
     for (i = 0; i < num_loaders; i++) {
-        int weight = (int) ((rand() / (RAND_MAX + 1.0)) * max_weight);
+        int weight = (int) ((rand() / (RAND_MAX + 1.0)) * max_weight) + 1;
         pid_t pid;
         if ((pid = fork()) == -1) {
             fprintf(stderr, "Fork failed.\n");

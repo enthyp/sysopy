@@ -220,12 +220,10 @@ open_belt(void) {
 
 int
 write_lock(int weight) {
-    struct sembuf sbs[2] = {
-            { .sem_num = 0, .sem_op = -1, .sem_flg = 0 },
-            { .sem_num = 1, .sem_op = -weight, .sem_flg = 0 }
-    };
-
-    if (semop(g_semaphores, sbs, 2) == -1) {
+    pid_t pid = getpid();
+    printf("%ld writelockin\n", pid);
+    struct sembuf sb = { .sem_num = 0, .sem_op = -1, .sem_flg = 0 };
+    if (semop(g_semaphores, &sb, 1) == -1) {
         int err = errno;
         if (g_mode == 0) {
             if (err == EINVAL || errno == EIDRM) {
@@ -235,12 +233,27 @@ write_lock(int weight) {
         perror("Lock write semaphore");
         return -1;
     }
-
+    printf("%ld writelockinmid\n", pid);
+    sb.sem_num = 1; sb.sem_op = -weight; sb.sem_flg = 0;
+    if (semop(g_semaphores, &sb, 1) == -1) {
+        int err = errno;
+        if (g_mode == 0) {
+            if (err == EINVAL || errno == EIDRM) {
+                return 1;
+            }
+        }
+        perror("Lock write semaphore");
+        return -1;
+    }
+    printf("%d writelocked\n", pid);
     return 0;
 }
 
 int
 read_lock(void) {
+    pid_t pid = getpid();
+
+    printf("%ld readlockedin\n", pid);
     struct sembuf sb = { .sem_num = 2, .sem_op = -1, .sem_flg = 0 };
 
     if (semop(g_semaphores, &sb, 1) == -1) {
@@ -257,14 +270,19 @@ read_lock(void) {
         return -1;
     }
 
+    printf("%ld readlocked\n", pid);
     return 0;
 }
 
 int
 access_lock(void) {
+    pid_t pid = getpid();
+
+    printf("%ld acclockin\n", pid);
     struct sembuf sb = { .sem_num = 3, .sem_op = -1, .sem_flg = 0 };
 
     if (semop(g_semaphores, &sb, 1) == -1) {
+        printf("accerr\n");
         int err = errno;
         if (g_mode == 0) {
             if (err == EINVAL || err == EIDRM) {
@@ -283,18 +301,23 @@ access_lock(void) {
     } else if (g_mode == 1) {
         g_locked = 1;
     }
+    printf("%ld acclocked\n", pid);
 
     return 0;
 }
 
 int
 write_release(int weight) {
+    pid_t pid = getpid();
+
+    printf("%ld writerelin\n", pid);
     struct sembuf sbs[2] = {
             { .sem_num = 0, .sem_op = 1, .sem_flg = 0 },
             { .sem_num = 1, .sem_op = weight, .sem_flg = 0 }
     };
 
     if (semop(g_semaphores, sbs, 2) == -1) {
+        printf("writerr\n");
         if (g_mode == 1) {
             if (g_after == 1) {
                 if (errno == EINVAL || errno == EIDRM || errno == EINTR) {
@@ -305,12 +328,14 @@ write_release(int weight) {
         perror("Release write semaphore");
         return -1;
     }
-
+    printf("%ld writerel\n", pid);
     return 0;
 }
 
 int
 read_release(void) {
+    pid_t pid = getpid();
+    printf("%ld readrelin\n", pid);
     struct sembuf sb = { .sem_num = 2, .sem_op = 1, .sem_flg = 0 };
 
     if (semop(g_semaphores, &sb, 1) == -1) {
@@ -326,12 +351,15 @@ read_release(void) {
         perror("Release read semaphore");
         return -1;
     }
+    printf("%ld readrel\n", pid);
 
     return 0;
 }
 
 int
 access_release(void) {
+    pid_t pid = getpid();
+    printf("%ld accrelin\n", pid);
     struct sembuf sb = { .sem_num = 3, .sem_op = 1, .sem_flg = 0 };
 
     if (semop(g_semaphores, &sb, 1) == -1) {
@@ -352,6 +380,7 @@ access_release(void) {
     } else if (g_mode == 1) {
         g_locked = 0;
     }
+    printf("%ld accrel\n", pid);
 
     return 0;
 }
@@ -372,16 +401,15 @@ enqueue(int weight) {
         return 1;
     }
 
-
     // RANDOMIZATION!!!
-    double prob = 0.5 * pow(0.8, weight - 1); // 0.5 for weight 1, exponentially decreasing with weight increase
-    if (rand() / (RAND_MAX + 1.0) < prob) {
-        if (write_release(weight) == -1 || access_release() == -1) {
-            return -1;
-        }
-
-        return 2;
-    }
+//    double prob = 0.5 * pow(0.8, weight - 1); // 0.5 for weight 1, exponentially decreasing with weight increase
+//    if (rand() / (RAND_MAX + 1.0) < prob) {
+//        if (write_release(weight) == -1 || access_release() == -1) {
+//            return -1;
+//        }
+//
+//        return 2;
+//    }
     // !!!
 
     long load_time = get_time();
@@ -403,14 +431,16 @@ enqueue(int weight) {
     printf(">>> Belt state after enqueue:\n\tWeight: %d\n\tCount: %d\n\n", g_queue -> current_weight, g_queue -> current_units);
     printf("PID: %d\nTime: %ld microsec\n", getpid(), load_time);
 
-    if ((res = access_release()) == -1) {
-        read_release();
+    if ((res = read_release()) == -1) {
+        access_release();
         return -1;
     } else if (res == 1) {
+        printf(">>>>>>> bobooo\n");
+        //access_release();
         return 1;
     }
 
-    return read_release();
+    return access_release();
 }
 
 int
@@ -457,12 +487,12 @@ dequeue(cargo_unit * cargo, int max_weight, int blocking_weight) {
 
     printf("Belt state after dequeue:\n\tWeight: %d\n\tCount: %d\n", g_queue -> current_weight, g_queue -> current_units);
 
-    if (access_release() == -1) {
-        write_release(cargo -> weight);
+    if (write_release(cargo -> weight) == -1) {
+        access_release();
         return -1;
     }
 
-    return write_release(cargo -> weight);
+    return access_release();
 }
 
 int
