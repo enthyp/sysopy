@@ -9,7 +9,7 @@ typedef struct {
 
 int create(int max_units, int max_weight);
 
-int open_belt(void);
+int open_belt(int max_units);
 
 int enqueue(int weight);
 
@@ -20,6 +20,8 @@ int access_lock(void);
 int access_release(void);
 
 int close_belt(void);
+
+int close_sem(void);
 
 int delete_sem(void);
 

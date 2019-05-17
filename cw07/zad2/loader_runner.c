@@ -25,7 +25,7 @@ main(int argc, char * argv[]) {
     }
 
     int no_units = -1;
-    if (argc == 4 && (no_units = read_natural(argv[2])) == -1) {
+    if (argc == 4 && (no_units = read_natural(argv[3])) == -1) {
         fprintf(stderr, "Third argument incorrect.\n");
         exit(EXIT_FAILURE);
     }

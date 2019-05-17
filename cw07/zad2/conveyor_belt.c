@@ -3,11 +3,11 @@
 #include <unistd.h>
 #include <time.h>
 #include <errno.h>
-#include <sys/sem.h>
-#include <sys/ipc.h>
+#include <semaphore.h>
+#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/shm.h>
+#include <sys/mman.h>
 #include <string.h>
 #include <time.h> // for srand
 #include <math.h> // for enqueue probability
@@ -23,7 +23,8 @@ union semun {
 
 typedef struct {
     int head, tail;
-    int current_units, current_weight;
+    int current_units;
+    int remaining_weight;
     int size;
 } queue;
 
@@ -32,40 +33,73 @@ cargo_unit * g_belt = NULL;
 
 extern int g_mode;          // 0/1 - loader/trucker
 extern int g_locked;        // whether trucker process holds the lock or not (loader ignores this one)
-extern int g_after;         // whether trucker process received SIGINT or not (loader ignores this one)
-int g_semaphores = -1;      // write_count, write_weight, read_count, access_count (effectively binary)
+extern int g_after;         // whether trucker process received SIGINT or not
+int g_sigint = 0;
+sem_t * g_write_count = NULL;
+sem_t * g_read_count = NULL;
+sem_t * g_acc_mutex = NULL;
 int g_queue_mem_seg = -1;
 int g_belt_mem_seg = -1;
 
-key_t
-get_key(int id) {
-    char * home = getenv("HOME");
-    if (home == NULL) {
-        fprintf(stderr, "No HOME variable to build key.\n");
-        return (key_t) -1;
+void
+handle_sigint(void) {
+    if (g_sigint == 0) {
+        g_sigint = 1;
+        close_sem();
+        delete_sem();
     }
-
-    key_t result = ftok(home, id);
-    if (result == (key_t) -1) {
-        perror("Generate key");
-        return (key_t) -1;
-    }
-
-    return result;
 }
 
 int
-get_semaphores(int flags) {
-    key_t sem_key = get_key(1);
-    if (sem_key == (key_t) -1) {
+create_semaphores(int max_units, int max_weight) {
+    g_write_count = sem_open("/write_count", O_CREAT | O_EXCL | O_RDWR, 0666, max_units);
+    if (g_write_count == SEM_FAILED) {
+        perror("Create write counter");
         return -1;
     }
 
-    if ((g_semaphores = semget(sem_key, 4, flags)) == -1) {
-        perror("Get semaphore set ID");
+    g_read_count = sem_open("/read_count", O_CREAT | O_EXCL | O_RDWR, 0666, 0);
+    if (g_read_count == SEM_FAILED) {
+        perror("Create read counter");
+        sem_close(g_write_count);
+        sem_unlink("/write_count");
+
         return -1;
-    } else {
-        printf("Semaphore set ID: %d\n", g_semaphores);
+    }
+
+    g_acc_mutex = sem_open("/acc_mutex", O_CREAT | O_EXCL | O_RDWR, 0666, 1);
+    if (g_acc_mutex == SEM_FAILED) {
+        perror("Create mutex");
+        sem_close(g_write_count);
+        sem_unlink("/write_count");
+        sem_close(g_read_count);
+        sem_unlink("/read_count");
+        return -1;
+    }
+
+    return 0;
+}
+
+int
+get_semaphores(void) {
+    g_write_count = sem_open("/write_count", O_RDWR);
+    if (g_write_count == SEM_FAILED) {
+        perror("Get write counter");
+        return -1;
+    }
+
+    g_read_count = sem_open("/read_count", O_RDWR);
+    if (g_read_count == SEM_FAILED) {
+        perror("Get read counter");
+        sem_close(g_write_count);
+        return -1;
+    }
+    g_acc_mutex = sem_open("/acc_mutex", O_RDWR);
+    if (g_acc_mutex == SEM_FAILED) {
+        perror("Get mutex");
+        sem_close(g_write_count);
+        sem_close(g_read_count);
+        return -1;
     }
 
     return 0;
@@ -73,98 +107,90 @@ get_semaphores(int flags) {
 
 int
 create_shared_memory(int max_units, int flags) {
-    key_t key = get_key(2);
-    if (key == (key_t) -1) {
-        return -1;
-    }
-
-    if ((g_queue_mem_seg = shmget(key, sizeof(queue), flags)) == -1) {
+    if ((g_queue_mem_seg = shm_open("/int_queue", O_CREAT | O_RDWR, 0666)) == -1) {
         perror("Create conveyor belt queue shared memory");
-        semctl(g_semaphores, 0, IPC_RMID);
+        delete_sem();
         return -1;
     } else {
         printf("Conveyor belt queue shared memory ID: %d\n", g_queue_mem_seg);
     }
 
-    key = get_key(3);
-    if (key == (key_t) -1) {
-        return -1;
-    }
-
-    if ((g_belt_mem_seg = shmget(key, max_units * sizeof(cargo_unit), flags)) == -1) {
+    if ((g_belt_mem_seg = shm_open("/int_belt", O_CREAT | O_RDWR, 0666)) == -1) {
         perror("Create conveyor belt shared memory");
-        shmdt(g_queue);
-        shmctl(g_queue_mem_seg, IPC_RMID, NULL);
-        semctl(g_semaphores, 0, IPC_RMID);
+        shm_unlink("/int_queue");
+        delete_sem();
         return -1;
     } else {
         printf("Conveyor belt shared memory ID: %d\n", g_belt_mem_seg);
     }
 
-    if((g_queue = (queue *) shmat(g_queue_mem_seg, NULL, 0)) == (void *) -1) {
-        perror("Attach to conveyor belt queue shared memory");
-        shmctl(g_queue_mem_seg, IPC_RMID, NULL);
-        semctl(g_semaphores, 0, IPC_RMID);
+    if (ftruncate(g_queue_mem_seg, sizeof(queue)) == -1) {
+        perror("Set conveyor belt queue size");
+        // TODO: rest?
         return -1;
     }
 
-    if((g_belt = (cargo_unit *) shmat(g_belt_mem_seg, NULL, 0)) == (void *) -1) {
-        perror("Attach to conveyor belt shared memory");
-        shmdt(g_queue);
-        shmctl(g_queue_mem_seg, IPC_RMID, NULL);
-        shmctl(g_belt_mem_seg, IPC_RMID, NULL);
-        semctl(g_semaphores, 0, IPC_RMID);
+    if (ftruncate(g_belt_mem_seg, max_units * sizeof(cargo_unit)) == -1) {
+        perror("Set conveyor belt size");
+        // TODO: rest?
         return -1;
     }
+
+    if((g_queue =
+            (queue *) mmap(NULL, sizeof(queue), PROT_READ | PROT_WRITE, MAP_SHARED, g_queue_mem_seg, 0)) == MAP_FAILED) {
+        perror("Map conveyor belt queue shared memory");
+        // TODO: rest?
+        return -1;
+    }
+
+    if((g_belt = (cargo_unit *) mmap(NULL, max_units * sizeof(cargo_unit), PROT_READ | PROT_WRITE, MAP_SHARED,
+            g_belt_mem_seg, 0)) == MAP_FAILED) {
+        perror("Map conveyor belt shared memory");
+        // TODO: rest?
+        return -1;
+    }
+
+    close(g_belt_mem_seg);
+    close(g_queue_mem_seg);
 
     return 0;
 }
 
 int
-get_shared_memory(int flags) {
-    key_t key = get_key(2);
-    if (key == (key_t) -1) {
-        return -1;
-    }
-
-    if ((g_queue_mem_seg = shmget(key, 0, flags)) == -1) {
-        perror("Create conveyor belt queue shared memory");
-        semctl(g_semaphores, 0, IPC_RMID);
+get_shared_memory(int max_units) {
+    if ((g_queue_mem_seg = shm_open("/int_queue", O_RDWR, 0666)) == -1) {
+        perror("Get conveyor belt queue shared memory");
+        delete_sem();
         return -1;
     } else {
         printf("Conveyor belt queue shared memory ID: %d\n", g_queue_mem_seg);
     }
 
-    key = get_key(3);
-    if (key == (key_t) -1) {
-        return -1;
-    }
-
-    if ((g_belt_mem_seg = shmget(key, 0, flags)) == -1) {
-        perror("Create conveyor belt shared memory");
-        shmdt(g_queue);
-        shmctl(g_queue_mem_seg, IPC_RMID, NULL);
-        semctl(g_semaphores, 0, IPC_RMID);
+    if ((g_belt_mem_seg = shm_open("/int_belt", O_RDWR, 0666)) == -1) {
+        perror("Get conveyor belt shared memory");
+        shm_unlink("/int_queue");
+        delete_sem();
         return -1;
     } else {
         printf("Conveyor belt shared memory ID: %d\n", g_belt_mem_seg);
     }
 
-    if((g_queue = (queue *) shmat(g_queue_mem_seg, NULL, 0)) == (void *) -1) {
-        perror("Attach to conveyor belt queue shared memory");
-        shmctl(g_queue_mem_seg, IPC_RMID, NULL);
-        semctl(g_semaphores, 0, IPC_RMID);
+    if((g_queue =
+                (queue *) mmap(NULL, sizeof(queue), PROT_READ | PROT_WRITE, MAP_SHARED, g_queue_mem_seg, 0)) == MAP_FAILED) {
+        perror("Map conveyor belt queue shared memory");
+        // TODO: rest?
         return -1;
     }
 
-    if((g_belt = (cargo_unit *) shmat(g_belt_mem_seg, NULL, 0)) == (void *) -1) {
-        perror("Attach to conveyor belt shared memory");
-        shmdt(g_queue);
-        shmctl(g_queue_mem_seg, IPC_RMID, NULL);
-        shmctl(g_belt_mem_seg, IPC_RMID, NULL);
-        semctl(g_semaphores, 0, IPC_RMID);
+    if((g_belt = (cargo_unit *) mmap(NULL, max_units * sizeof(cargo_unit), PROT_READ | PROT_WRITE, MAP_SHARED,
+                                     g_belt_mem_seg, 0)) == MAP_FAILED) {
+        perror("Map conveyor belt shared memory");
+        // TODO: rest?
         return -1;
     }
+
+    close(g_belt_mem_seg);
+    close(g_queue_mem_seg);
 
     return 0;
 }
@@ -172,46 +198,31 @@ get_shared_memory(int flags) {
 int
 create(int max_units, int max_weight) {
     // Create conveyor belt access semaphores.
-    if (get_semaphores(IPC_CREAT | IPC_EXCL | 0666) == -1) {
+    if (create_semaphores(max_units, max_weight) == -1) {
         return -1;
     }
 
     // Initialize conveyor belt in shared memory.
-    if (create_shared_memory(max_units, IPC_CREAT | 0666) == -1) {
+    if (create_shared_memory(max_units, max_weight) == -1) {
         return -1;
     }
 
     // Initialize queue.
-    queue q = { .head = 0, .tail = 0, .current_units = 0, .current_weight = 0, .size = max_units };
+    queue q = { .head = 0, .tail = 0, .current_units = 0, .remaining_weight = max_weight, .size = max_units };
     memcpy(g_queue, &q, sizeof(queue));
-
-    // Initialize semaphores.
-    union semun sem;
-    unsigned short sem_arr[] = {max_units, max_weight, 0, 1};
-    sem.array = sem_arr;
-
-    if (semctl(g_semaphores, 0, SETALL, sem) == -1) {
-        fprintf(stderr, "Failed to initialize semaphores.\n");
-        shmdt(g_queue);
-        shmdt(g_belt);
-        shmctl(g_queue_mem_seg, IPC_RMID, NULL);
-        shmctl(g_belt_mem_seg, IPC_RMID, NULL);
-        semctl(g_semaphores, 0, IPC_RMID);
-        return -1;
-    }
 
     return 0;
 }
 
 int
-open_belt(void) {
+open_belt(int max_units) {
     // Get conveyor belt access semaphores.
-    if (get_semaphores(0) == -1) {
+    if (get_semaphores() == -1) {
         return -1;
     }
 
     // Attach to conveyor belt shared memory.
-    if (get_shared_memory(0) == -1) {
+    if (get_shared_memory(max_units) == -1) {
         return -1;
     }
 
@@ -219,13 +230,11 @@ open_belt(void) {
 }
 
 int
-write_lock(int weight) {
-    struct sembuf sbs[2] = {
-            { .sem_num = 0, .sem_op = -1, .sem_flg = 0 },
-            { .sem_num = 1, .sem_op = -weight, .sem_flg = 0 }
-    };
-
-    if (semop(g_semaphores, sbs, 2) == -1) {
+write_lock(void) {
+    if (!g_mode && g_sigint) {
+        return 1;
+    }
+    if (sem_wait(g_write_count) == -1) {
         int err = errno;
         if (g_mode == 0) {
             if (err == EINVAL || errno == EIDRM) {
@@ -241,14 +250,17 @@ write_lock(int weight) {
 
 int
 read_lock(void) {
-    struct sembuf sb = { .sem_num = 2, .sem_op = -1, .sem_flg = 0 };
+    if (g_mode && g_after) {
+        return 0;
+    }
 
-    if (semop(g_semaphores, &sb, 1) == -1) {
+    if (sem_wait(g_read_count) == -1) {
         int err = errno;
         if (g_mode == 1) {
             if (g_after && (err == EINVAL || err == EIDRM)) {
                 return 0;
             } else if (err == EINTR) {
+                handle_sigint();
                 return 1;
             }
         }
@@ -262,9 +274,13 @@ read_lock(void) {
 
 int
 access_lock(void) {
-    struct sembuf sb = { .sem_num = 3, .sem_op = -1, .sem_flg = 0 };
-
-    if (semop(g_semaphores, &sb, 1) == -1) {
+    if (!g_mode && g_sigint) {
+        return 1;
+    }
+    if (g_after && g_mode) {
+        return 0;
+    }
+    if (sem_wait(g_acc_mutex) == -1) {
         int err = errno;
         if (g_mode == 0) {
             if (err == EINVAL || err == EIDRM) {
@@ -274,6 +290,7 @@ access_lock(void) {
             if (g_after && (err == EINVAL || err == EIDRM)) {
                 return 0;
             } else if (err == EINTR) {
+                handle_sigint();
                 return 1;
             }
         }
@@ -288,13 +305,8 @@ access_lock(void) {
 }
 
 int
-write_release(int weight) {
-    struct sembuf sbs[2] = {
-            { .sem_num = 0, .sem_op = 1, .sem_flg = 0 },
-            { .sem_num = 1, .sem_op = weight, .sem_flg = 0 }
-    };
-
-    if (semop(g_semaphores, sbs, 2) == -1) {
+write_release(void) {
+    if (sem_post(g_write_count) == -1) {
         if (g_mode == 1) {
             if (g_after == 1) {
                 if (errno == EINVAL || errno == EIDRM || errno == EINTR) {
@@ -311,9 +323,7 @@ write_release(int weight) {
 
 int
 read_release(void) {
-    struct sembuf sb = { .sem_num = 2, .sem_op = 1, .sem_flg = 0 };
-
-    if (semop(g_semaphores, &sb, 1) == -1) {
+    if (sem_post(g_read_count) == -1) {
         if (g_mode == 0) {
             if (errno == EINVAL || errno == EIDRM) {
                 return 1;
@@ -332,9 +342,7 @@ read_release(void) {
 
 int
 access_release(void) {
-    struct sembuf sb = { .sem_num = 3, .sem_op = 1, .sem_flg = 0 };
-
-    if (semop(g_semaphores, &sb, 1) == -1) {
+    if (sem_post(g_acc_mutex) == -1) {
         if (g_mode == 1) {
             if (g_after == 1) {
                 if (errno == EINVAL || errno == EIDRM || errno == EINTR) {
@@ -359,25 +367,24 @@ access_release(void) {
 int
 enqueue(int weight) {
     int res;
-    if ((res = write_lock(weight)) == -1) {
+    if ((res = write_lock()) == -1) {
         return -1;
     } else if (res == 1) {
         return 1;
     }
 
     if ((res = access_lock()) == -1) {
-        write_release(weight);
+        write_release();
         return -1;
     } else if (res == 1) {
         return 1;
     }
 
-
     // RANDOMIZATION!!!
     srand(time(NULL));
     double prob = 0.5 * pow(0.8, weight - 1); // 0.5 for weight 1, exponentially decreasing with weight increase
     if (rand() / (RAND_MAX + 1.0) < prob) {
-        if (write_release(weight) == -1 || access_release() == -1) {
+        if (write_release() == -1 || access_release() == -1) {
             return -1;
         }
 
@@ -385,10 +392,18 @@ enqueue(int weight) {
     }
     // !!!
 
+    if (g_queue -> remaining_weight < weight) {
+        if (access_release() == -1 || write_release() == -1) {
+            return -1;
+        }
+
+        return 2;
+    }
+
     long load_time = get_time();
     if (load_time == -1) {
         access_release();
-        write_release(weight);
+        write_release();
         return -1;
     }
 
@@ -398,10 +413,11 @@ enqueue(int weight) {
     memcpy(g_belt + g_queue -> tail, &cargo, sizeof(cargo_unit));
     g_queue -> tail = (g_queue -> tail + 1) % g_queue -> size;
 
-    g_queue -> current_weight += weight;
+    g_queue -> remaining_weight -= weight;
     g_queue -> current_units += 1;
 
-    printf(">>> Belt state after enqueue:\n\tWeight: %d\n\tCount: %d\n\n", g_queue -> current_weight, g_queue -> current_units);
+    printf(">>> Belt state after enqueue:\n\tWeight remaining: %d\n\tCount: %d\n\n", g_queue -> remaining_weight,
+            g_queue -> current_units);
     printf("PID: %d\nTime: %ld microsec\n", getpid(), load_time);
 
     if ((res = access_release()) == -1) {
@@ -453,28 +469,53 @@ dequeue(cargo_unit * cargo, int max_weight, int blocking_weight) {
     memcpy(cargo, g_belt + g_queue -> head, sizeof(cargo_unit));
     g_queue -> head = (g_queue -> head + 1) % g_queue -> size;
 
-    g_queue -> current_weight -= cargo -> weight;
+    g_queue -> remaining_weight += cargo -> weight;
     g_queue -> current_units -= 1;
 
-    printf("Belt state after dequeue:\n\tWeight: %d\n\tCount: %d\n", g_queue -> current_weight, g_queue -> current_units);
+    printf("Belt state after dequeue:\n\tWeight remaining: %d\n\tCount: %d\n", g_queue -> remaining_weight,
+            g_queue -> current_units);
 
     if (access_release() == -1) {
-        write_release(cargo -> weight);
+        write_release();
         return -1;
     }
 
-    return write_release(cargo -> weight);
+    return write_release();
 }
 
 int
 close_belt(void) {
-    if (shmdt(g_queue) == -1) {
-        perror("Detach conveyor belt queue shared memory");
+    if (close_sem() == -1) {
         return -1;
     }
 
-    if (shmdt(g_belt) == -1) {
-        perror("Detach conveyor belt shared memory");
+    if (munmap(g_belt, g_queue -> size * sizeof(cargo_unit)) == -1) {
+        perror("Unmap conveyor belt shared memory");
+        return -1;
+    }
+
+    if (munmap(g_queue, sizeof(queue)) == -1) {
+        perror("Unmap conveyor belt queue shared memory");
+        return -1;
+    }
+
+    return 0;
+}
+
+int
+close_sem(void) {
+    if (sem_close(g_write_count) == -1) {
+        perror("Close sem");
+        return -1;
+    }
+
+    if (sem_close(g_read_count) == -1) {
+        perror("Close sem");
+        return -1;
+    }
+
+    if (sem_close(g_acc_mutex) == -1) {
+        perror("Close sem");
         return -1;
     }
 
@@ -483,8 +524,18 @@ close_belt(void) {
 
 int
 delete_sem(void) {
-    if (semctl(g_semaphores, 0, IPC_RMID) == -1) {
-        perror("Delete semaphores");
+    if (sem_unlink("/write_count") == -1) {
+        perror("Unlink sem");
+        return -1;
+    }
+
+    if (sem_unlink("/read_count") == -1) {
+        perror("Unlink sem");
+        return -1;
+    }
+
+    if (sem_unlink("/acc_mutex") == -1) {
+        perror("Unlink sem");
         return -1;
     }
 
@@ -493,21 +544,23 @@ delete_sem(void) {
 
 int
 delete_mem(void) {
-    if (shmdt(g_queue) == -1) {
-        perror("Detach conveyor belt queue shared memory");
-        return -1;
-    }
-    if (shmctl(g_queue_mem_seg, IPC_RMID, NULL) == -1) {
-        perror("Delete conveyor belt queue shared memory");
+    if (munmap(g_belt, g_queue -> size * sizeof(cargo_unit)) == -1) {
+        perror("Unmap conveyor belt shared memory");
         return -1;
     }
 
-    if (shmdt(g_belt) == -1) {
-        perror("Detach conveyor belt shared memory");
+    if (munmap(g_queue, sizeof(queue)) == -1) {
+        perror("Unmap conveyor belt queue shared memory");
         return -1;
     }
-    if (shmctl(g_belt_mem_seg, IPC_RMID, NULL) == -1) {
-        perror("Delete conveyor belt shared memory");
+
+    if (shm_unlink("/int_queue") == -1) {
+        perror("Unlink conveyor belt queue shared memory");
+        return -1;
+    }
+
+    if (shm_unlink("/int_belt") == -1) {
+        perror("Unlink conveyor belt shared memory");
         return -1;
     }
 

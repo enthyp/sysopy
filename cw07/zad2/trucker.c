@@ -31,13 +31,6 @@ void
 sigint_handler(int sig) {
     printf(">>> SIGINT received!\n");
     g_after = 1;
-    if (!g_locked && access_lock() == -1) {
-        exit(EXIT_FAILURE);
-    }
-
-    if (delete_sem() == -1) {
-        exit(EXIT_FAILURE);
-    }
 }
 
 int
@@ -94,45 +87,6 @@ load_truck(void) {
         sleep(1);
     }
 
-//    do {
-//        if (g_cargo_state == LOADED) {
-//            if (!g_after) {
-//                printf(">>> Awaiting load...\n");
-//            }
-//            int take_return = dequeue(g_off_cargo);
-//
-//            if (take_return == -1) {
-//                // Failure receiving the message - belt state may be corrupt.
-//                return -1;
-//            } else if (take_return == 1) {
-//                // Interrupted while waiting to acquire read lock.
-//                continue;
-//            } else if (take_return == 2) {
-//                // No more messages after SIGINT.
-//                done = 1;
-//                break;
-//            }
-//        }
-//
-//        if (g_off_cargo -> weight > g_max_truck_load) {
-//            // Belt was blocked by this cargo unit.
-//            fprintf(stderr, "Cargo unit blocked the belt.\n");
-//            if (delete_sem() == -1) {
-//                return -1;
-//            }
-//            return 1;
-//        }
-//
-//        if (g_current_truck_load + g_off_cargo -> weight <= g_max_truck_load) {
-//            handle_cargo();
-//            if (g_current_truck_load == g_max_truck_load) {
-//                break;
-//            }
-//        } else {
-//            g_cargo_state = PENDING;
-//            break;
-//        }
-//    } while (1);
     cur_time = get_time();
     printf(">>> Truck departs.\nTime: %ld microsec\n\n", cur_time);
 
@@ -209,13 +163,14 @@ main(int argc, char * argv[]) {
         int res;
         if ((res = load_truck()) == -1) {
             // Error condition.
+            close_sem();
             delete_sem();
             delete_mem();
             free(g_off_cargo);
             exit(EXIT_FAILURE);
         } else if (res == 1) {
             // End of messages after SIGINT.
-            if (delete_mem() == -1) {
+            if (delete_mem() == -1 || delete_sem() == -1) {
                 free(g_off_cargo);
                 exit(EXIT_FAILURE);
             }

@@ -7,7 +7,7 @@
 int g_mode = 0; // loader mode
 int g_running = 1;
 int g_locked = 0; // used by conveyor_belt.c in trucker process only!
-int g_after = 0; // used by conveyor_belt.c in trucker process only!
+int g_after = 0;
 
 void
 sigint_handler(int sig) {
@@ -37,7 +37,7 @@ main(int argc, char * argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    if (open_belt() == -1) {
+    if (open_belt(1000) == -1) {
         exit(EXIT_FAILURE);
     }
 
@@ -56,7 +56,7 @@ main(int argc, char * argv[]) {
             printf("Belt closed.\n");
             break;
         } else if (res == 2) {
-            // Roll dice -> enqueue failed
+            // Roll dice -> enqueue failed OR cargo too heavy.
             continue;
         }
 
