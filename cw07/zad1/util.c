@@ -70,3 +70,21 @@ get_time(void) {
 
     return (long)(ts.tv_sec * 1.0e6 + ts.tv_nsec / 1.0e3);
 }
+
+//int
+//print_time(long microseconds, char * string) {
+//    time_t seconds = microseconds / 1.0e6;
+//    long fraction = microseconds % (long) 1.0e6;
+//
+//    struct * tm = localtime(seconds);
+//    if (strftime(*string, 22, "<%d-%m-%Y %H:%M:%S,", t) < 21) {
+//        fprintf(stderr, "Failed to convert date to string.\n");
+//        return -1;
+//    }
+//
+//    char frac[8];
+//    sprintf(frac, "%ld6>", fraction);
+//    strcat(string, frac);
+//
+//    return 0;
+//}

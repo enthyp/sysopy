@@ -14,10 +14,10 @@ CFLAGS := -Wall -g
 all: $(TARGET)
 
 loader: $(LOADER_OBJ)
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) -lm $^ -o $@
 
 trucker: $(TRUCKER_OBJ)
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) -lm $^ -o $@
 
 -include $(DEPS)
 

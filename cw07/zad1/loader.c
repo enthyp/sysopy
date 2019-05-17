@@ -42,12 +42,22 @@ main(int argc, char * argv[]) {
     }
 
     while (g_running && no_units != 0) {
+        long cur_time = get_time();
+        if (cur_time == -1) {
+            exit(EXIT_FAILURE);
+        }
+        printf(">>> Awaiting belt access...\nPID: %d\nTime: %ld microsec\n", getpid(), cur_time);
+
         int res = enqueue(weight);
         if (res == -1) {
-            continue;
+            fprintf(stderr, "Error occurred.\n");
+            break;
         } else if (res == 1) {
             printf("Belt closed.\n");
             break;
+        } else if (res == 2) {
+            // Roll dice -> enqueue failed
+            continue;
         }
 
         no_units--;

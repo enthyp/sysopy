@@ -9,6 +9,8 @@
 #include <sys/stat.h>
 #include <sys/shm.h>
 #include <string.h>
+#include <time.h> // for srand
+#include <math.h> // for enqueue probability
 #include "conveyor_belt.h"
 #include "util.h"
 
@@ -31,7 +33,7 @@ cargo_unit * g_belt = NULL;
 extern int g_mode;          // 0/1 - loader/trucker
 extern int g_locked;        // whether trucker process holds the lock or not (loader ignores this one)
 extern int g_after;         // whether trucker process received SIGINT or not (loader ignores this one)
-int g_semaphores = -1;      // WRITE (count, weight) READ: (count) ACCESS (count)
+int g_semaphores = -1;      // write_count, write_weight, read_count, access_count (effectively binary)
 int g_queue_mem_seg = -1;
 int g_belt_mem_seg = -1;
 
@@ -316,6 +318,10 @@ read_release(void) {
             if (errno == EINVAL || errno == EIDRM) {
                 return 1;
             }
+        } else if (g_mode == 1) {
+            if (errno == EINVAL || errno == EIDRM) {
+                return 0;
+            }
         }
         perror("Release read semaphore");
         return -1;
@@ -366,6 +372,19 @@ enqueue(int weight) {
         return 1;
     }
 
+
+    // RANDOMIZATION!!!
+    srand(time(NULL));
+    double prob = 0.5 * pow(0.8, weight - 1); // 0.5 for weight 1, exponentially decreasing with weight increase
+    if (rand() / (RAND_MAX + 1.0) < prob) {
+        if (write_release(weight) == -1 || access_release() == -1) {
+            return -1;
+        }
+
+        return 2;
+    }
+    // !!!
+
     long load_time = get_time();
     if (load_time == -1) {
         access_release();
@@ -381,7 +400,9 @@ enqueue(int weight) {
 
     g_queue -> current_weight += weight;
     g_queue -> current_units += 1;
-    printf("Belt state after enqueue:\n\tWeight: %d\n\tCount: %d\n", g_queue -> current_weight, g_queue -> current_units);
+
+    printf(">>> Belt state after enqueue:\n\tWeight: %d\n\tCount: %d\n\n", g_queue -> current_weight, g_queue -> current_units);
+    printf("PID: %d\nTime: %ld microsec\n", getpid(), load_time);
 
     if ((res = access_release()) == -1) {
         read_release();
@@ -394,7 +415,7 @@ enqueue(int weight) {
 }
 
 int
-dequeue(cargo_unit * cargo) {
+dequeue(cargo_unit * cargo, int max_weight, int blocking_weight) {
     int res;
 
     if ((res = read_lock()) == -1) {
@@ -413,6 +434,20 @@ dequeue(cargo_unit * cargo) {
 
     if (g_after && g_queue -> current_units == 0) {
         return 2;
+    }
+
+    if ((g_belt + g_queue -> head) -> weight > blocking_weight) {
+        if (access_release() == -1 || read_release() == -1) {
+            return -1;
+        }
+
+        return 3;
+    } else if ((g_belt + g_queue -> head) -> weight > max_weight) {
+        if (access_release() == -1 || read_release() == -1) {
+            return -1;
+        }
+
+        return 4;
     }
 
     memcpy(cargo, g_belt + g_queue -> head, sizeof(cargo_unit));

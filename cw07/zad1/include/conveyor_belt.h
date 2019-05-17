@@ -13,7 +13,7 @@ int open_belt(void);
 
 int enqueue(int weight);
 
-int dequeue(cargo_unit * cargo);
+int dequeue(cargo_unit * cargo, int max_weight, int blocking_weight);
 
 int access_lock(void);
 
