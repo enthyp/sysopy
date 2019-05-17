@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <time.h>
 #include "conveyor_belt.h"
 #include "util.h"
 
@@ -41,8 +40,6 @@ main(int argc, char * argv[]) {
     if (open_belt() == -1) {
         exit(EXIT_FAILURE);
     }
-
-    srand(time(NULL));
 
     while (g_running && no_units != 0) {
         long cur_time = get_time();

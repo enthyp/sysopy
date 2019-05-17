@@ -374,6 +374,7 @@ enqueue(int weight) {
 
 
     // RANDOMIZATION!!!
+    srand(time(NULL));
     double prob = 0.5 * pow(0.8, weight - 1); // 0.5 for weight 1, exponentially decreasing with weight increase
     if (rand() / (RAND_MAX + 1.0) < prob) {
         if (write_release(weight) == -1 || access_release() == -1) {

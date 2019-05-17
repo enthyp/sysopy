@@ -1,17 +1,11 @@
-TARGET := loader trucker loader_runner
+TARGET := loader trucker
 
 SRC := $(wildcard *.c)
 BUILD_DIR := ./build
 INCL_DIR := ./include
 OBJ := $(SRC:%.c=$(BUILD_DIR)/%.o)
 LOADER_OBJ := $(subst $(BUILD_DIR)/trucker.o,,$(OBJ))
-LOADER_OBJ := $(subst $(BUILD_DIR)/loader_runner.o,,$(LOADER_OBJ))
-
-LOADER_RUNNER_OBJ := $(BUILD_DIR)/loader_runner.o $(BUILD_DIR)/util.o
-
 TRUCKER_OBJ := $(subst $(BUILD_DIR)/loader.o,,$(OBJ))
-TRUCKER_OBJ := $(subst $(BUILD_DIR)/loader_runner.o,,$(TRUCKER_OBJ))
-
 DEPS := $(OBJ:.o=.d)
 
 CFLAGS := -Wall -g
@@ -21,9 +15,6 @@ all: $(TARGET)
 
 loader: $(LOADER_OBJ)
 	$(CC) $(CFLAGS) -lm $^ -o $@
-
-loader_runner: $(LOADER_RUNNER_OBJ)
-	$(CC) $(CFLAGS) $^ -o $@
 
 trucker: $(TRUCKER_OBJ)
 	$(CC) $(CFLAGS) -lm $^ -o $@
@@ -63,7 +54,3 @@ teardown:
 		ipcrm -s $$i; \
 	done; \
 	echo "Semaphores removed."
-
-.PHONY:
-echo:
-	@echo $(LOADER_OBJ)
