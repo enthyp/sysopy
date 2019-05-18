@@ -3,11 +3,11 @@
 #include <unistd.h>
 #include <time.h>
 #include <errno.h>
-#include <sys/sem.h>
-#include <sys/ipc.h>
+#include <semaphore.h>
+#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/shm.h>
+#include <sys/mman.h>
 #include <string.h>
 #include <signal.h>
 #include "queue.h"
@@ -21,6 +21,7 @@ union semun {
 };
 
 typedef struct {
+    pid_t producer_supervisor;
     int head, tail;
     int current_units, current_weight;
     int max_units, max_weight;
@@ -31,7 +32,8 @@ typedef struct {
 typedef struct {
     queue_state * state;
     cargo_unit * content;
-    int mutex;  // set of 4: enq_mutex, state_mutex, consumer_alarm, producer_alarm
+    char * mutex_name[4];
+    sem_t * mutex[4];
     int state_mem_seg, content_mem_seg;
 } queue;
 
@@ -40,54 +42,26 @@ extern int g_sigint;    // trucker.c
 int g_locked = 0;
 int g_empty = 1;
 
-key_t
-get_key(int id) {
-    char * home = getenv("HOME");
-    if (home == NULL) {
-        fprintf(stderr, "No HOME variable to build key.\n");
-        return (key_t) -1;
-    }
-
-    key_t result = ftok(home, id);
-    if (result == (key_t) -1) {
-        perror("Generate key");
-        return (key_t) -1;
-    }
-
-    return result;
-}
-
 int
 get_semaphores(queue * queue, int create) {
-    int flags = 0;
-    if (create) {
-        flags = IPC_CREAT | IPC_EXCL | 0666;
-    }
+    int i, j;
+    for (i = 0; i < 4; i++) {
+        if (create) {
+            queue -> mutex[i] = sem_open(queue -> mutex_name[i], O_CREAT | O_EXCL | O_RDWR, 0666, i < 2);
+        } else {
+            queue -> mutex[i] = sem_open(queue -> mutex_name[i], O_RDWR);
+        }
 
-    key_t sem_key = get_key(1);
-    if (sem_key == (key_t) -1) {
-        return -1;
-    }
+        if (queue -> mutex[i] == SEM_FAILED) {
+            int err = errno;
+            fprintf(stderr, "Get mutex %d: %s\n", strerror(err));
+            for (j = 0; j < i; j++) {
+                sem_close(queue -> mutex[i]);
+                sem_unlink(queue -> mutex_name[i]);
+            }
 
-    if ((queue -> mutex = semget(sem_key, 4, flags)) == -1) {
-        perror("Get semaphore set");
-        return -1;
-    } else {
-        printf("Semaphore set ID: %d\n", queue -> mutex);
-    }
-
-    return 0;
-}
-
-int
-init_semaphores(queue * queue) {
-    union semun sem;
-    unsigned short sem_arr[] = {1, 1, 0, 0};
-    sem.array = sem_arr;
-
-    if (semctl(queue -> mutex, 0, SETALL, sem) == -1) {
-        fprintf(stderr, "Failed to initialize semaphores.\n");
-        return -1;
+            return -1;
+        }
     }
 
     return 0;
@@ -95,53 +69,68 @@ init_semaphores(queue * queue) {
 
 int
 get_shared_memory(queue * queue, int max_units, int create) {
-    int flags = 0;
-    int state_size = 0, content_size = 0;
+    int flags = O_RDWR;
     if (create) {
-        flags = IPC_CREAT | IPC_EXCL | 0666;
-        state_size = sizeof(queue_state);
-        content_size = max_units * sizeof(cargo_unit);
+        flags |= O_CREAT | O_EXCL;
     }
 
-    key_t key = get_key(2);
-    if (key == (key_t) -1) {
-        return -1;
-    }
-
-    if ((queue -> state_mem_seg = shmget(key, state_size, flags)) == -1) {
+    if ((queue -> state_mem_seg = shm_open("/state", flags, 0666)) == -1) {
         perror("Get queue state shared memory");
+        delete_sem();
         return -1;
     } else {
-        printf("State shared memory ID: %d\n", queue -> state_mem_seg);
+        printf("Queue state shared memory ID: %d\n", queue -> state_mem_seg);
     }
 
-    key = get_key(3);
-    if (key == (key_t) -1) {
-        return -1;
-    }
-
-    if ((queue -> content_mem_seg = shmget(key, content_size, flags)) == -1) {
+    if ((queue -> content_mem_seg = shm_open("/content", flags, 0666)) == -1) {
         perror("Get queue content shared memory");
-        shmctl(queue -> state_mem_seg, IPC_RMID, NULL);
+        shm_unlink("/state");
+        delete_sem();
         return -1;
     } else {
         printf("Queue content shared memory ID: %d\n", queue -> content_mem_seg);
     }
 
-    if((queue -> state = (queue_state *) shmat(queue -> state_mem_seg, NULL, 0)) == (void *) -1) {
-        perror("Attach to queue state shared memory");
-        shmctl(queue -> content_mem_seg, IPC_RMID, NULL);
-        shmctl(queue -> state_mem_seg, IPC_RMID, NULL);
+    if (create) {
+        if (ftruncate(queue -> state_mem_seg, sizeof(queue_state)) == -1) {
+            perror("Set queue state size");
+            shm_unlink("/state");
+            shm_unlink("/content");
+            delete_sem();
+            return -1;
+        }
+
+        if (ftruncate(queue -> content_mem_seg, max_units * sizeof(cargo_unit)) == -1) {
+            perror("Set queue content size");
+            shm_unlink("/state");
+            shm_unlink("/content");
+            delete_sem();
+            return -1;
+        }
+    }
+
+    if((queue -> state = (queue_state *)
+            mmap(NULL, sizeof(queue_state), PROT_READ | PROT_WRITE, MAP_SHARED,
+                    queue -> state_mem_seg, 0)) == MAP_FAILED) {
+        perror("Map queue state shared memory");
+        shm_unlink("/state");
+        shm_unlink("/content");
+        delete_sem();
         return -1;
     }
 
-    if((queue -> content = (cargo_unit *) shmat(queue -> content_mem_seg, NULL, 0)) == (void *) -1) {
-        perror("Attach to queue content shared memory");
-        shmdt(queue -> state);
-        shmctl(queue -> content_mem_seg, IPC_RMID, NULL);
-        shmctl(queue -> state_mem_seg, IPC_RMID, NULL);
+    if((queue -> content = (cargo_unit *)
+            mmap(NULL, max_units * sizeof(cargo_unit), PROT_READ | PROT_WRITE, MAP_SHARED,
+                    queue -> content_mem_seg, 0)) == MAP_FAILED) {
+        perror("Map queue content shared memory");
+        shm_unlink("/state");
+        shm_unlink("/content");
+        delete_sem();
         return -1;
     }
+
+    close(queue -> state_mem_seg);
+    close(queue -> content_mem_seg);
 
     return 0;
 }
@@ -149,6 +138,7 @@ get_shared_memory(queue * queue, int max_units, int create) {
 int
 init_queue_state(queue * queue, int max_units, int max_weight) {
     queue_state state = {
+            .producer_supervisor = (pid_t) 0,
             .head = 0,
             .tail = 0,
             .current_units = 0,
@@ -173,17 +163,8 @@ init_queue(queue ** queue_p) {
     }
 
     queue q;
+    q.mutex_name = { "/enq_mutex", "/state_mutex", "/cons_alarm", "/prod_alarm" };
     memcpy(*queue_p, &q, sizeof(queue));
-
-    return 0;
-}
-
-int
-delete_sem(queue * queue) {
-    if (semctl(queue -> mutex, 0, IPC_RMID) == -1) {
-        perror("Delete semaphores");
-        return -1;
-    }
 
     return 0;
 }
@@ -194,17 +175,17 @@ create_queue(int max_units, int max_weight) {
         return -1;
     }
 
+    if (get_shared_memory(g_queue, max_units, 1) == -1) {
+        delete_sem(g_queue);
+        return -1;
+    }
+
     if (get_semaphores(g_queue, 1) == -1) {
         return -1;
     }
 
     if (init_semaphores(g_queue) == -1) {
-        delete_sem(g_queue);
-        return -1;
-    }
-
-    if (get_shared_memory(g_queue, max_units, 1) == -1) {
-        delete_sem(g_queue);
+        delete_queue();
         return -1;
     }
 
@@ -234,47 +215,73 @@ open_queue(void) {
 }
 
 int
-delete_queue(void) {
-    if (delete_sem(g_queue) == -1) {
-        return -1;
+close_sem(queue * queue) {
+    int i;
+    for (i = 0; i < 4; i++) {
+        if (sem_close(queue -> mutex[i]) == -1) {
+            perror("Close sem");
+            return -1;
+        }
     }
-
-    if (shmdt(g_queue -> state) == -1) {
-        perror("Detach queue state shared memory");
-        return -1;
-    }
-    if (shmctl(g_queue -> state_mem_seg, IPC_RMID, NULL) == -1) {
-        perror("Delete queue state shared memory");
-        return -1;
-    }
-
-    if (shmdt(g_queue -> content) == -1) {
-        perror("Detach queue content shared memory");
-        return -1;
-    }
-    if (shmctl(g_queue -> content_mem_seg, IPC_RMID, NULL) == -1) {
-        perror("Delete queue content shared memory");
-        return -1;
-    }
-
-    free(g_queue);
 
     return 0;
 }
 
 int
 close_queue(void) {
-    if (shmdt(g_queue -> state) == -1) {
-        perror("Detach queue state shared memory");
+    if (close_sem(g_queue) == -1) {
         return -1;
     }
 
-    if (shmdt(g_queue -> content) == -1) {
-        perror("Detach queue content shared memory");
+    if (munmap(g_queue -> content, g_queue -> state -> max_units * sizeof(cargo_unit)) == -1) {
+        perror("Unmap queue content shared memory");
+        return -1;
+    }
+
+    if (munmap(g_queue -> state, sizeof(queue_state)) == -1) {
+        perror("Unmap queue state shared memory");
         return -1;
     }
 
     free(g_queue);
+    return 0;
+}
+
+int
+delete_sem(queue * queue) {
+    int i;
+    for (i = 0; i < 4; i++) {
+        if (sem_unlink(queue -> mutex_name[i]) == -1) {
+            perror("Unlink sem");
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+int
+delete_queue(void) {
+    if (close_queue() == -1) {
+        return -1;
+    }
+
+    if (delete_sem(g_queue) == -1) {
+        return -1;
+    }
+
+    if (shm_unlink("/state") == -1) {
+        perror("Unlink queue state shared memory");
+        return -1;
+    }
+
+    if (shm_unlink("/content") == -1) {
+        perror("Unlink queue content shared memory");
+        return -1;
+    }
+
+    free(g_queue);
+
     return 0;
 }
 
