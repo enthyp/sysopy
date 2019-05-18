@@ -13,8 +13,16 @@ cargo_unit * g_off_cargo = NULL;
 int load_truck(void);
 void handle_cargo(void);
 
+int g_sigint = 0;   // shared with queue.c
+
+void
+sigint_handler(int sig) {
+    g_sigint = 1;
+}
+
 int
 load_truck(void) {
+    int done = 0;
     g_current_truck_count = 0;
     g_current_truck_load = 0;
 
@@ -27,12 +35,17 @@ load_truck(void) {
 
         int take_return = dequeue(g_off_cargo, g_max_truck_load - g_current_truck_load, g_max_truck_load);
         if (take_return == -1) {
+            fprintf(stderr, "ERROR\n");
             return -1;
         } else if (take_return == 1) {
             fprintf(stderr, "Cargo unit too heavy for the truck.\n");
             return -1;
         } else if (take_return == 2) {
             // Next cargo unit is too heavy to load - truck must depart.
+            break;
+        } else if (take_return == 3) {
+            // No more cargo after SIGINT.
+            done = 1;
             break;
         }
 
@@ -41,6 +54,10 @@ load_truck(void) {
 
     cur_time = get_time();
     printf(">>> Truck departs.\nTime: %ld microsec\n\n", cur_time);
+
+    if (done) {
+        return 1;
+    }
 
     return 0;
 }
@@ -80,6 +97,10 @@ main(int argc, char * argv[]) {
         exit(EXIT_FAILURE);
     }
 
+    if (set_signal_handling(sigint_handler) == -1) {
+        exit(EXIT_FAILURE);
+    }
+
     if (create_queue(max_units, max_weight) == -1) {
         exit(EXIT_FAILURE);
     }
@@ -91,12 +112,14 @@ main(int argc, char * argv[]) {
         exit(EXIT_FAILURE);
     }
 
+    int res;
     while (1) {
-        int res = load_truck();
-        if (res == -1) {
+        if ((res = load_truck()) != 0) {
             delete_queue();
             free(g_off_cargo);
-            exit(EXIT_FAILURE);
+            break;
         }
     }
+
+    (res == 1) ? exit(EXIT_SUCCESS) : exit(EXIT_FAILURE);
 }

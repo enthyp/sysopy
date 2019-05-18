@@ -7,6 +7,8 @@
 #include "queue.h"
 #include "util.h"
 
+int g_sigint = 0;   // shared with queue.c, ONLY needed by trucker process
+
 int 
 main(int argc, char * argv[]) {
     if (argc != 2 && argc != 3) {

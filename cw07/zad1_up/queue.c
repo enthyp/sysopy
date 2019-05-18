@@ -36,6 +36,8 @@ typedef struct {
 } queue;
 
 queue * g_queue = NULL;
+extern int g_sigint;    // trucker.c
+int g_locked = 0;
 
 key_t
 get_key(int id) {
@@ -277,9 +279,20 @@ close_queue(void) {
 
 int
 lock(queue * queue, int mutex_id) {
+    if (g_locked) {
+        return 0;
+    }
+
     struct sembuf sb = { .sem_num = mutex_id, .sem_op = -1, .sem_flg = 0 };
     if (semop(queue -> mutex, &sb, 1) == -1) {
         int err = errno;
+        if (err == EINTR) {
+            return lock(queue, mutex_id);   // just don't SIGINT repeatedly, will you?
+        }
+        if (err == EINVAL || err == EIDRM) {
+            close_queue();
+            exit(EXIT_SUCCESS);
+        }
         fprintf(stderr, "Lock semaphore %d: %s", mutex_id, strerror(err));
         return -1;
     }
@@ -289,9 +302,20 @@ lock(queue * queue, int mutex_id) {
 
 int
 release(queue * queue, int mutex_id) {
+    if (g_locked) {
+        return 0;
+    }
+
     struct sembuf sb = { .sem_num = mutex_id, .sem_op = 1, .sem_flg = 0 };
     if (semop(queue -> mutex, &sb, 1) == -1) {
         int err = errno;
+        if (err == EINTR) {
+            return release(queue, mutex_id);
+        }
+        if (err == EINVAL || err == EIDRM) {
+            close_queue();
+            exit(EXIT_SUCCESS);
+        }
         fprintf(stderr, "Release semaphore %d: %s", mutex_id, strerror(err));
         return -1;
     }
@@ -387,6 +411,10 @@ int
 dequeue(cargo_unit * cargo, int available_weight, int max_weight) {
     lock(g_queue, 1);
 
+    if (g_sigint) {
+        g_locked = 1;
+    }
+
     queue_state state = *(g_queue -> state);
     if (state.current_units > 0) {
         int head_weight = peek(g_queue);
@@ -401,6 +429,10 @@ dequeue(cargo_unit * cargo, int available_weight, int max_weight) {
         really_dequeue(g_queue, cargo);
         release(g_queue, 1);
     } else {
+        if (g_locked) {
+            return 3;
+        }
+
         g_queue -> state -> consumer_sleeping = 1;
         release(g_queue, 1);
 
