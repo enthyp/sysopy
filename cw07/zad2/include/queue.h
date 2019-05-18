@@ -9,7 +9,7 @@ typedef struct {
 
 int create_queue(int max_units, int max_weight);
 
-int open_queue(void);
+int open_queue(int max_units);
 
 int enqueue(int weight);
 

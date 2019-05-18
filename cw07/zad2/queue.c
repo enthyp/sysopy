@@ -42,6 +42,8 @@ extern int g_sigint;    // trucker.c
 int g_locked = 0;
 int g_empty = 1;
 
+int delete_sem(queue *);
+
 int
 get_semaphores(queue * queue, int create) {
     int i, j;
@@ -54,7 +56,7 @@ get_semaphores(queue * queue, int create) {
 
         if (queue -> mutex[i] == SEM_FAILED) {
             int err = errno;
-            fprintf(stderr, "Get mutex %d: %s\n", strerror(err));
+            fprintf(stderr, "Get mutex %d: %s\n", i, strerror(err));
             for (j = 0; j < i; j++) {
                 sem_close(queue -> mutex[i]);
                 sem_unlink(queue -> mutex_name[i]);
@@ -76,7 +78,7 @@ get_shared_memory(queue * queue, int max_units, int create) {
 
     if ((queue -> state_mem_seg = shm_open("/state", flags, 0666)) == -1) {
         perror("Get queue state shared memory");
-        delete_sem();
+        delete_sem(g_queue);
         return -1;
     } else {
         printf("Queue state shared memory ID: %d\n", queue -> state_mem_seg);
@@ -85,7 +87,7 @@ get_shared_memory(queue * queue, int max_units, int create) {
     if ((queue -> content_mem_seg = shm_open("/content", flags, 0666)) == -1) {
         perror("Get queue content shared memory");
         shm_unlink("/state");
-        delete_sem();
+        delete_sem(g_queue);
         return -1;
     } else {
         printf("Queue content shared memory ID: %d\n", queue -> content_mem_seg);
@@ -96,7 +98,7 @@ get_shared_memory(queue * queue, int max_units, int create) {
             perror("Set queue state size");
             shm_unlink("/state");
             shm_unlink("/content");
-            delete_sem();
+            delete_sem(g_queue);
             return -1;
         }
 
@@ -104,7 +106,7 @@ get_shared_memory(queue * queue, int max_units, int create) {
             perror("Set queue content size");
             shm_unlink("/state");
             shm_unlink("/content");
-            delete_sem();
+            delete_sem(g_queue);
             return -1;
         }
     }
@@ -115,7 +117,7 @@ get_shared_memory(queue * queue, int max_units, int create) {
         perror("Map queue state shared memory");
         shm_unlink("/state");
         shm_unlink("/content");
-        delete_sem();
+        delete_sem(g_queue);
         return -1;
     }
 
@@ -125,7 +127,7 @@ get_shared_memory(queue * queue, int max_units, int create) {
         perror("Map queue content shared memory");
         shm_unlink("/state");
         shm_unlink("/content");
-        delete_sem();
+        delete_sem(g_queue);
         return -1;
     }
 
@@ -163,7 +165,10 @@ init_queue(queue ** queue_p) {
     }
 
     queue q;
-    q.mutex_name = { "/enq_mutex", "/state_mutex", "/cons_alarm", "/prod_alarm" };
+    q.mutex_name[0] = "/enq_mutex";
+    q.mutex_name[1] = "/state_mutex";
+    q.mutex_name[2] = "/cons_alarm";
+    q.mutex_name[3] = "/prod_alarm";
     memcpy(*queue_p, &q, sizeof(queue));
 
     return 0;
@@ -175,17 +180,12 @@ create_queue(int max_units, int max_weight) {
         return -1;
     }
 
-    if (get_shared_memory(g_queue, max_units, 1) == -1) {
-        delete_sem(g_queue);
-        return -1;
-    }
-
     if (get_semaphores(g_queue, 1) == -1) {
         return -1;
     }
 
-    if (init_semaphores(g_queue) == -1) {
-        delete_queue();
+    if (get_shared_memory(g_queue, max_units, 1) == -1) {
+        delete_sem(g_queue);
         return -1;
     }
 
@@ -198,18 +198,20 @@ create_queue(int max_units, int max_weight) {
 }
 
 int
-open_queue(void) {
+open_queue(int max_units) {
     if (init_queue(&g_queue) == -1) {
-        return -1;
-    }
-
-    if (get_shared_memory(g_queue, 0, 0) == -1) {
         return -1;
     }
 
     if (get_semaphores(g_queue, 0) == -1) {
         return -1;
     }
+
+    if (get_shared_memory(g_queue, max_units, 0) == -1) {
+        return -1;
+    }
+
+    g_queue -> state -> producer_supervisor = getppid();
 
     return 0;
 }
@@ -262,6 +264,13 @@ delete_sem(queue * queue) {
 
 int
 delete_queue(void) {
+    pid_t supervisor = g_queue -> state -> producer_supervisor;
+
+    if (kill(supervisor, SIGINT) == -1) {
+        perror("Kill producer supervisor");
+        return -1;
+    }
+
     if (close_queue() == -1) {
         return -1;
     }
@@ -281,7 +290,6 @@ delete_queue(void) {
     }
 
     free(g_queue);
-
     return 0;
 }
 
@@ -291,8 +299,7 @@ lock(queue * queue, int mutex_id) {
         return 0;
     }
 
-    struct sembuf sb = { .sem_num = mutex_id, .sem_op = -1, .sem_flg = 0 };
-    if (semop(queue -> mutex, &sb, 1) == -1) {
+    if (sem_wait(queue -> mutex[mutex_id]) == -1) {
         int err = errno;
         if (err == EINTR) {
             return lock(queue, mutex_id);   // just don't SIGINT repeatedly, will you?
@@ -314,8 +321,7 @@ release(queue * queue, int mutex_id) {
         return 0;
     }
 
-    struct sembuf sb = { .sem_num = mutex_id, .sem_op = 1, .sem_flg = 0 };
-    if (semop(queue -> mutex, &sb, 1) == -1) {
+    if (sem_post(queue -> mutex[mutex_id]) == -1) {
         int err = errno;
         if (err == EINTR) {
             return release(queue, mutex_id);

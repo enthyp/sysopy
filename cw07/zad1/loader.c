@@ -32,7 +32,7 @@ main(int argc, char * argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    prctl(PR_SET_PDEATHSIG, SIGKILL);
+    prctl(PR_SET_PDEATHSIG, SIGINT);
 
     while (no_units != 0) {
         long cur_time = get_time();

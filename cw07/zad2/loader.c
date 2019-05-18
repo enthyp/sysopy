@@ -9,10 +9,15 @@
 
 int g_sigint = 0;   // shared with queue.c, ONLY needed by trucker process
 
+void
+sigint_handler(int sig) {
+    (close_queue() == -1) ? exit(EXIT_FAILURE) : exit(EXIT_SUCCESS);
+}
+
 int 
 main(int argc, char * argv[]) {
-    if (argc != 2 && argc != 3) {
-        fprintf(stderr, "Pass cargo weight and (optionally) number of cargo units.\n");
+    if (argc != 3 && argc != 4) {
+        fprintf(stderr, "Pass cargo weight, max number of units on belt and (optionally) number of cargo units.\n");
         exit(EXIT_FAILURE);
     }
 
@@ -22,17 +27,27 @@ main(int argc, char * argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    int no_units = -1;
-    if (argc == 3 && (no_units = read_natural(argv[2])) == -1) {
+    int max_units;
+    if ((max_units = read_natural(argv[2])) == -1) {
         fprintf(stderr, "Second argument incorrect.\n");
         exit(EXIT_FAILURE);
     }
 
-    if (open_queue() == -1) {
+    int no_units = -1;
+    if (argc == 4 && (no_units = read_natural(argv[3])) == -1) {
+        fprintf(stderr, "Third argument incorrect.\n");
         exit(EXIT_FAILURE);
     }
 
-    prctl(PR_SET_PDEATHSIG, SIGKILL);
+    if (set_signal_handling(sigint_handler) == -1) {
+        exit(EXIT_FAILURE);
+    }
+
+    if (open_queue(max_units) == -1) {
+        exit(EXIT_FAILURE);
+    }
+
+    prctl(PR_SET_PDEATHSIG, SIGINT);
 
     while (no_units != 0) {
         long cur_time = get_time();
