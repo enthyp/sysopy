@@ -38,6 +38,7 @@ typedef struct {
 queue * g_queue = NULL;
 extern int g_sigint;    // trucker.c
 int g_locked = 0;
+int g_empty = 1;
 
 key_t
 get_key(int id) {
@@ -437,6 +438,8 @@ dequeue(cargo_unit * cargo, int available_weight, int max_weight) {
         release(g_queue, 1);
 
         lock(g_queue, 3);   // wait for producer to up that semaphore
+
+        g_empty = 0;        // for SIGINT to work even before loaders start
 
         lock(g_queue, 1);
         really_dequeue(g_queue, cargo);

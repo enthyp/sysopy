@@ -14,10 +14,15 @@ int load_truck(void);
 void handle_cargo(void);
 
 int g_sigint = 0;   // shared with queue.c
+extern int g_empty; // shared with queue.c
 
 void
 sigint_handler(int sig) {
     g_sigint = 1;
+    if (g_empty) {
+        delete_queue();
+        exit(EXIT_SUCCESS);
+    }
 }
 
 int
