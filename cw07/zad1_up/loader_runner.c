@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <limits.h>
+#include <sys/wait.h>
 #include "util.h"
 
 int
@@ -59,7 +60,9 @@ main(int argc, char * argv[]) {
         }
     }
 
-    pause();
+    for (i = 0; i < num_loaders; i++) {
+        wait(NULL);
+    }
 
     return 0;
 }
