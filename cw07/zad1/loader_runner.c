@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <limits.h>
+#include <sys/wait.h>
 #include "util.h"
 
 int
@@ -44,21 +45,23 @@ main(int argc, char * argv[]) {
         } else if (pid == 0) {
             if (argc == 3) {
                 sprintf(arg1, "%d", weight);
-                if (execl("loader", "loader", arg1, NULL) == -1) {
-                    perror("Launch");
-                    exit(EXIT_FAILURE);
-                }
+                execl("loader", "loader", arg1, NULL);
+                perror("Launch");
+                exit(EXIT_FAILURE);
             } else {
                 sprintf(arg1, "%d", weight);
                 sprintf(arg2, "%d", no_units);
-                if (execl("loader", "loader", arg1, arg2, NULL) == -1) {
-                    perror("Launch");
-                    exit(EXIT_FAILURE);
-                }
+                execl("loader", "loader", arg1, arg2, NULL);
+                perror("Launch");
+                exit(EXIT_FAILURE);
             }
         } else {
             printf("Launched.\n");
         }
+    }
+
+    for (i = 0; i < num_loaders; i++) {
+        wait(NULL);
     }
 
     return 0;
