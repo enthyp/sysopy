@@ -39,6 +39,7 @@ queue * g_queue = NULL;
 extern int g_sigint;    // trucker.c
 int g_locked = 0;
 int g_empty = 1;
+int g_sleep_empty = 0;
 
 key_t
 get_key(int id) {
@@ -437,7 +438,11 @@ dequeue(cargo_unit * cargo, int available_weight, int max_weight) {
         g_queue -> state -> consumer_sleeping = 1;
         release(g_queue, 1);
 
+        g_sleep_empty = 1;  // this is a hackaround for SIGINT to work after loaders finish
         lock(g_queue, 3);   // wait for producer to up that semaphore
+        g_sleep_empty = 0;  // it's a race condition but won't occur unless SIGINT is received
+                            // in great sync with loaders finishing all operation (but SIGINT need
+                            // not be used in that case at all!)
 
         g_empty = 0;        // for SIGINT to work even before loaders start
 

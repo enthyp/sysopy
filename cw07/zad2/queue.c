@@ -41,6 +41,7 @@ queue * g_queue = NULL;
 extern int g_sigint;    // trucker.c
 int g_locked = 0;
 int g_empty = 1;
+int g_sleep_empty = 0;
 
 int delete_sem(queue *);
 
@@ -268,7 +269,9 @@ delete_queue(void) {
 
     if (kill(supervisor, SIGINT) == -1) {
         perror("Kill producer supervisor");
-        return -1;
+        if (!g_sleep_empty) {
+            return -1;
+        }
     }
 
     if (close_queue() == -1) {
@@ -289,7 +292,6 @@ delete_queue(void) {
         return -1;
     }
 
-    free(g_queue);
     return 0;
 }
 
@@ -450,7 +452,11 @@ dequeue(cargo_unit * cargo, int available_weight, int max_weight) {
         g_queue -> state -> consumer_sleeping = 1;
         release(g_queue, 1);
 
+        g_sleep_empty = 1;  // this is a hackaround for SIGINT to work after loaders finish
         lock(g_queue, 3);   // wait for producer to up that semaphore
+        g_sleep_empty = 0;  // it's a race condition but won't occur unless SIGINT is received
+        // in great sync with loaders finishing all operation (but SIGINT need
+        // not be used in that case at all!)
 
         g_empty = 0;        // for SIGINT to work even before loaders start
 

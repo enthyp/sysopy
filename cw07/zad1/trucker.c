@@ -15,11 +15,12 @@ void handle_cargo(void);
 
 int g_sigint = 0;   // shared with queue.c
 extern int g_empty; // shared with queue.c
+extern int g_sleep_empty;   // shared with queue.c
 
 void
 sigint_handler(int sig) {
     g_sigint = 1;
-    if (g_empty) {
+    if (g_empty || g_sleep_empty) {
         delete_queue();
         exit(EXIT_SUCCESS);
     }
