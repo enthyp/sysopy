@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <time.h>
+#include <signal.h>
+#include <sys/prctl.h>
 #include "queue.h"
 #include "util.h"
 
@@ -28,7 +30,7 @@ main(int argc, char * argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    srand(time(NULL));
+    prctl(PR_SET_PDEATHSIG, SIGKILL);
 
     while (no_units != 0) {
         long cur_time = get_time();

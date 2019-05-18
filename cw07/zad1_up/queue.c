@@ -25,42 +25,17 @@ typedef struct {
     int current_units, current_weight;
     int max_units, max_weight;
     int consumer_sleeping, producer_sleeping;
-    pid_t consumer_pid, producer_pid;
     int producer_weight;
 } queue_state;
 
 typedef struct {
     queue_state * state;
     cargo_unit * content;
-    int mutex;  // set of 3: enq_mutex, deq_mutex, state_mutex
+    int mutex;  // set of 4: enq_mutex, state_mutex, consumer_alarm, producer_alarm
     int state_mem_seg, content_mem_seg;
 } queue;
 
 queue * g_queue = NULL;
-
-void
-wake_up(int sig) {
-    return;
-}
-
-int
-set_wakeup(void) {
-    struct sigaction act;
-    act.sa_handler = wake_up;
-    act.sa_flags = 0;
-
-    if (sigemptyset(&(act.sa_mask)) == -1) {
-        perror("Clean signal mask");
-        return -1;
-    }
-
-    if (sigaction(SIGALRM, &act, NULL) == -1) {
-        perror("Set SIGALRM handler");
-        return -1;
-    }
-
-    return 0;
-}
 
 key_t
 get_key(int id) {
@@ -91,7 +66,7 @@ get_semaphores(queue * queue, int create) {
         return -1;
     }
 
-    if ((queue -> mutex = semget(sem_key, 3, flags)) == -1) {
+    if ((queue -> mutex = semget(sem_key, 4, flags)) == -1) {
         perror("Get semaphore set");
         return -1;
     } else {
@@ -104,7 +79,7 @@ get_semaphores(queue * queue, int create) {
 int
 init_semaphores(queue * queue) {
     union semun sem;
-    unsigned short sem_arr[] = {1, 1, 1};
+    unsigned short sem_arr[] = {1, 1, 0, 0};
     sem.array = sem_arr;
 
     if (semctl(queue -> mutex, 0, SETALL, sem) == -1) {
@@ -179,8 +154,6 @@ init_queue_state(queue * queue, int max_units, int max_weight) {
             .max_weight = max_weight,
             .consumer_sleeping = 0,
             .producer_sleeping = 0,
-            .producer_pid = 0,
-            .consumer_pid = 0,
             .producer_weight = 0
     };
     memcpy(queue -> state, &state, sizeof(queue_state));
@@ -237,11 +210,6 @@ create_queue(int max_units, int max_weight) {
         return -1;
     }
 
-    if (set_wakeup() == -1) {
-        delete_queue();
-        return -1;
-    }
-
     return 0;
 }
 
@@ -256,11 +224,6 @@ open_queue(void) {
     }
 
     if (get_semaphores(g_queue, 0) == -1) {
-        return -1;
-    }
-
-    if (set_wakeup() == -1) {
-        close_queue();
         return -1;
     }
 
@@ -357,7 +320,7 @@ really_enqueue(queue * queue, int weight) {
            loader_pid, load_time, queue -> state -> current_weight, queue -> state -> current_units);
 
     if (state.consumer_sleeping) {
-        kill(state.consumer_pid, SIGALRM);
+        release(queue, 3);    // notify sleeping consumer
         queue -> state-> consumer_sleeping = 0;
     }
 }
@@ -374,10 +337,10 @@ enqueue(int weight) {
         return 1;   // Blocking cargo - loader must quit.
     } else if (state.current_units == state.max_units || weight > state.max_weight - state.current_weight) {
         g_queue -> state -> producer_sleeping = 1;
-        g_queue -> state -> producer_pid = getpid();
         g_queue -> state -> producer_weight = weight;
         release(g_queue, 1);
-        pause();    // Wait for signal when queue available.
+
+        lock(g_queue, 2);   // wait for consumer to up that semaphore
 
         lock(g_queue, 1);
         really_enqueue(g_queue, weight);
@@ -400,7 +363,7 @@ peek(queue * queue) {
 void
 really_dequeue(queue * queue, cargo_unit * cargo) {
     long unload_time = get_time();
-    queue_state state = *(g_queue -> state);
+    queue_state state = *(queue -> state);
     memcpy(cargo, queue -> content + state.head, sizeof(cargo_unit));
 
     queue -> state -> head = (state.head + 1) % state.max_units;
@@ -410,11 +373,18 @@ really_dequeue(queue * queue, cargo_unit * cargo) {
     printf(">>> DEQUEUED!\n\tPID: %d\nTimediff: %ld microsec\n\tWeight: %d\n\tCount: %d\n\n",
            cargo -> loader_pid, unload_time - cargo -> load_time, queue -> state -> current_weight,
            queue -> state -> current_units);
+
+    if (state.producer_sleeping) {
+        state = *(queue -> state);
+        if (state.max_weight - state.current_weight >= state.producer_weight) {
+            release(queue, 2);    // notify sleeping producer
+            queue -> state -> producer_sleeping = 0;
+        }
+    }
 }
 
 int
 dequeue(cargo_unit * cargo, int available_weight, int max_weight) {
-    lock(g_queue, 2);
     lock(g_queue, 1);
 
     queue_state state = *(g_queue -> state);
@@ -422,32 +392,23 @@ dequeue(cargo_unit * cargo, int available_weight, int max_weight) {
         int head_weight = peek(g_queue);
         if (head_weight > max_weight) {
             release(g_queue, 1);
-            release(g_queue, 2);
             return 1;
         } else if (head_weight > available_weight) {
             release(g_queue, 1);
-            release(g_queue, 2);
             return 2;
         }
 
         really_dequeue(g_queue, cargo);
-
-        if (state.producer_sleeping) {
-            kill(state.producer_pid, SIGALRM);
-            state.producer_sleeping = 0;
-        }
         release(g_queue, 1);
-        release(g_queue, 2);
     } else {
         g_queue -> state -> consumer_sleeping = 1;
-        g_queue -> state -> consumer_pid = getpid();
         release(g_queue, 1);
-        pause();    // Wait for signal when cargo available.
+
+        lock(g_queue, 3);   // wait for producer to up that semaphore
 
         lock(g_queue, 1);
         really_dequeue(g_queue, cargo);
         release(g_queue, 1);
-        release(g_queue, 2);
     }
 
     return 0;
