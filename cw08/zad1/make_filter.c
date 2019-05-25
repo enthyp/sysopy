@@ -16,7 +16,7 @@ main(int argc, char * argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    if (get_random_filter(argv[2], size) == -1) {
+    if (make_random_filter(argv[2], size) == -1) {
         fprintf(stderr, "Failed to get random filter!\n");
         exit(EXIT_FAILURE);
     }

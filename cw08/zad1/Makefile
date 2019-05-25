@@ -15,7 +15,7 @@ CFLAGS := -Wall -g
 all: $(TARGET)
 
 main: $(MAIN_OBJ)
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) -lpthread -lm $^ -o $@
 
 make_filter: $(FILTER_OBJ)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -38,5 +38,21 @@ $(BUILD_DIR):
 	@mkdir -p $@
 
 .PHONY:
+test: $(TARGET)
+	@touch Times.txt; \
+	for filter in img/filter*; do \
+		for i in 1 2 4 8; do \
+			for mode in block interleaved; do \
+				header="Filter: $$filter Threads: $$i Mode: $$mode"; \
+				echo $$header >> Times.txt; \
+				./main $$i $$mode img/mountain.ascii.pgm $$filter "img/conv-$${filter:4}-$$i-$$mode.ascii.pgm" >> \
+				Times.txt; \
+				echo -e "\n" >> Times.txt; \
+				echo $$header DONE!; \
+			done; \
+		done; \
+	done
+
+.PHONY:
 clean:
-	@rm -rf $(TARGET) $(BUILD_DIR)
+	@rm -rf $(TARGET) $(BUILD_DIR) img/conv*
