@@ -6,6 +6,9 @@
 #include <pthread.h>
 #include <time.h>
 #include <unistd.h>
+#include <string.h>
+#include <errno.h>
+#include <signal.h>
 
 
 typedef struct {
@@ -32,21 +35,32 @@ sem_t get_on_sem;
 int g_num_passengers, g_num_trains, g_train_capacity, g_train_rounds;
 pthread_t * g_thread_ids = NULL;
 
+int g_stop = 0;
 
-long
-get_time(void) {
+char * g_timestamp = NULL;
+
+
+void
+set_timestamp(char * timestamp) {
     struct timespec ts;
-    if (clock_gettime(CLOCK_MONOTONIC, &ts) == -1) {
+    if (clock_gettime(CLOCK_REALTIME, &ts) == -1) {
         perror("Get current time");
-        return -1;
+        return;
     }
 
-    return (long)(ts.tv_sec * 1.0e3 + ts.tv_nsec * 1.0e-6);
+    struct tm * t = localtime(&(ts.tv_sec));
+    strftime(timestamp, 9, "%H:%M:%S", t);
+
+    int millis = (int) ts.tv_nsec * 1.0e-6;
+    char ms[4];
+    snprintf(ms, 5, ".%.3d", millis);
+    strcat(timestamp, ms);
 }
 
 
 void *
 train(void * arg) {
+    char timestamp[13];
     thread_id * inp = (thread_id *) arg;
     int id = inp -> id;
 
@@ -60,7 +74,8 @@ train(void * arg) {
         // Let all passengers depart.
         pthread_mutex_lock(&(state->pc_mutex));
 
-        printf("TRAIN %d: doors opening!\n", id);
+        set_timestamp(timestamp);
+        printf("TRAIN %d <%s>: doors opening!\n", id, timestamp);
 
         if (state->passenger_count > 0) {
             sem_post(&(state->get_off_sem));
@@ -74,12 +89,7 @@ train(void * arg) {
 
         // Check if it's all over.
         if (ride_count == g_train_rounds) {
-            if (id == g_num_trains - 1) {
-                int i;
-                for (i = g_num_trains; i < g_num_trains + g_num_passengers; i++) {
-                    pthread_cancel(g_thread_ids[i]);
-                }
-            } else {
+            if (id != g_num_trains - 1) {
                 // Just let the next one proceed.
                 int next_id = (id + 1) % g_num_trains;
                 sem_post(&(g_trains[next_id].exec_sem));
@@ -91,62 +101,78 @@ train(void * arg) {
         // Reset the start button.
         pthread_mutex_lock(&(state -> start_mutex));
         state -> start = 0;
-        pthread_mutex_unlock(&(state -> start_mutex));
 
         // Let passengers on board and wait till train fills up.
-
-        pthread_mutex_lock(&(state -> start_mutex));
         sem_wait(&(state -> get_off_sem));
-
         sem_post(&get_on_sem);
 
         pthread_mutex_lock(&(state -> pc_mutex));
-        pthread_cond_wait(&(state->pc_cond), &(state->pc_mutex));
+        if (state -> passenger_count < g_train_capacity) {
+            pthread_cond_wait(&(state->pc_cond), &(state->pc_mutex));
+        }
         pthread_mutex_unlock(&(state -> pc_mutex));
 
-        printf("TRAIN %d: doors closing!\n", id);
+        set_timestamp(timestamp);
+        printf("TRAIN %d <%s>: doors closing!\n", id, timestamp);
 
         // Let passengers start it.
 
         pthread_mutex_unlock(&(state -> start_mutex));
-        pthread_cond_wait(&(state->start_cond), &(state->start_mutex));
+        if (state -> start == 0) {
+            pthread_cond_wait(&(state->start_cond), &(state->start_mutex));
+        }
         pthread_mutex_unlock(&(state -> start_mutex));
 
         // Once it has started (passengers wait for get_off_sem) -
         // let the next train proceed.
 
-        printf("TRAIN %d: starting the ride!!!\n\n\n", id);
+        set_timestamp(timestamp);
+        printf("TRAIN %d <%s>: starting the ride!!!\n\n\n", id, timestamp);
 
         int next_id = (id + 1) % g_num_trains;
         sem_post(&(g_trains[next_id].exec_sem));
         ride_count++;
 
         // And wait for the next turn (from the beginning).
-        sleep(1); // TODO: random!
+
+        int dur = 1000 + (rand() / (RAND_MAX + 1.0)) * 9000;
+        usleep(dur);
     }
 
-    printf("TRAIN %d: that's enough fun for today...\n", id);
+    set_timestamp(timestamp);
+    printf("TRAIN %d <%s>: shutdown.\n", id, timestamp);
+
+    if (id == g_num_trains -1) {
+        g_stop = 1;
+        sem_post(&get_on_sem);
+    }
+
     return arg;
 }
 
+
 void *
 passenger(void * arg) {
-    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL); // TODO: maybe change? need to note about job finish...
-    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+    char timestamp[13];
 
+    //signal(SIGINT, sigint_handler);
     thread_id * inp = (thread_id *) arg;
     int id = inp -> id;
 
     while (1) {
         // Wait till train opens for newcomers.
-
         sem_wait(&get_on_sem);
+        if (g_stop) {
+            sem_post(&get_on_sem);
+            break;
+        }
         train_state * state = g_trains + g_current_train_id;
-
         pthread_mutex_lock(&(state->pc_mutex));
         state -> passenger_count += 1;
 
-        printf("PASSENGER %d: gets on the train. Passengers now aboard: %d\n", id, state -> passenger_count);
+        set_timestamp(timestamp);
+        printf("PASSENGER %d <%s>: gets on the train. Passengers now aboard: %d\n",
+                id, timestamp, state -> passenger_count);
 
         if (state -> passenger_count < g_train_capacity) {
             sem_post(&get_on_sem);
@@ -160,7 +186,8 @@ passenger(void * arg) {
         pthread_mutex_lock(&(state->start_mutex));
 
         if (state->start == 0) {
-            printf("PASSENGER %d: pressed the START button!\n", id);
+            set_timestamp(timestamp);
+            printf("PASSENGER %d <%s>: pressed the START button!\n", id, timestamp);
             state -> start += 1;
             pthread_cond_broadcast(&(state -> start_cond));
         }
@@ -172,7 +199,9 @@ passenger(void * arg) {
 
         pthread_mutex_lock(&(state->pc_mutex));
         state -> passenger_count -= 1;
-        printf("PASSENGER %d: gets off the train. Passengers now aboard: %d\n", id, state -> passenger_count);
+        set_timestamp(timestamp);
+        printf("PASSENGER %d <%s>: gets off the train. Passengers now aboard: %d\n",
+                id, timestamp, state -> passenger_count);
 
         if (state -> passenger_count == 0) {
             pthread_cond_broadcast(&(state -> pc_cond));
@@ -184,6 +213,8 @@ passenger(void * arg) {
         // We got off - try to aboard again (from the beginning).
     }
 
+    set_timestamp(timestamp);
+    printf("PASSENGER %d <%s>: shutdown.\n", id, timestamp);
     return arg;
 }
 
@@ -267,9 +298,8 @@ main(int argc, char * argv[]) {
         pthread_join(g_thread_ids[i], &ret);
     }
 
-    // TODO: Clean up resources.
-
     sem_destroy(&get_on_sem);
+
     for (i = 0; i < g_num_trains; i++) {
         sem_destroy(&(g_trains[i].exec_sem));
         sem_destroy(&(g_trains[i].get_off_sem));
