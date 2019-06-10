@@ -15,10 +15,10 @@ CFLAGS := -Wall -g
 all: $(TARGET)
 
 server: $(SERVER_OBJ)
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) -lpthread $^ -o $@
 
 client: $(CLIENT_OBJ)
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) -lpthread $^ -o $@
 
 -include $(DEPS)
 
