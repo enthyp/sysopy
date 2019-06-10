@@ -198,76 +198,123 @@ sigint_handler(int sig) {
     exit(EXIT_SUCCESS);
 }
 
+void
+register_client(int client_socket) {
+    int i;
+    for (i = 0; i < MAX_CLIENTS; i++) {
+        if (g_server_state.clients[i].socket_fd != -1) {
+            g_server_state.clients[i].socket_fd = client_socket;
+            break;
+        }
+    }
 
+    struct epoll_event event;
+    event.events = EPOLLIN | EPOLLOUT;
+    event.data = (epoll_data_t) -i;  // a hack
+    if (epoll_ctl(g_server_state.active_sockets, EPOLL_CTL_ADD, client_socket, &event) == -1) {
+        perror("register client socket descriptor with epoll");
+        exit(EXIT_FAILURE);
+    }
+
+
+//    int val_read;
+//    if ((val_read = read(client_socket, buffer, 1024)) == 0) {
+//        // Connection closed - unregister socket.
+//        if (epoll_ctl(g_active_sockets, EPOLL_CTL_DEL, client_socket, &event) == -1) {
+//            perror("unregister client socket descriptor from epoll");
+//            exit(EXIT_FAILURE);
+//        }
+//    } else if (val_read != -1) {
+//        buffer[MIN(val_read, BUFFER_SIZE - 1)] = '\0';
+//        printf("OPENED: %s\n", buffer);
+//    } else {
+//        perror("read from client socket");
+//        exit(EXIT_FAILURE);
+//    }
+}
+
+void
+handle_free(int client_socket, uint32_t events) {
+    if ((socket_events[i].events & EPOLLIN) == EPOLLIN) {
+        fprintf(stderr, "ERR: UNEXPECTED TRANSMISSION IN STATE: FREE\n");
+        return;  // TODO: remove maybe?
+    } else {
+        //
+        // TODO: move reads to global buffer to a separate function!
+        int val_read;
+        if ((val_read = read(fd, buffer, 1024)) == 0) {
+            // Connection closed - unregister socket.
+            if (epoll_ctl(g_active_sockets, EPOLL_CTL_DEL, fd, NULL) == -1) {
+                perror("unregister client socket descriptor from epoll");
+                exit(EXIT_FAILURE);
+            }
+        } else if (val_read != -1) {
+            buffer[MIN(val_read, BUFFER_SIZE - 1)] = '\0';
+            send(fd, buffer, strlen(buffer), 0);
+        } else {
+            perror("read from client socket");
+            exit(EXIT_FAILURE);
+        }
+    }
+}
+
+void
+handle_trans(int client_socket, uint32_t events) {
+
+}
+
+void
+handle_proc(int client_socket, uint32_t events) {
+
+}
+
+void
+handle_recv(int client_socket, uint32_t events) {
+
+}
 
 void *
 event_loop(void * arg) {
-//    struct epoll_event socket_events[MAX_CLIENTS + 2];
-//    int client_count = 0;
-//
-//    // Accept incoming connections.
-//    while (g_running) {
-//        int i, epoll_count = epoll_wait(g_active_sockets, socket_events, MAX_CLIENTS + 2, -1);
-//        for (i = 0; i < epoll_count; i++) {
-//            int fd = socket_events[i].data.fd;
-//
-//            if (fd == g_net_socket || fd == g_local_socket) {
-//                int client_socket = accept(fd, NULL, NULL);
-//                if (client_socket == -1) {
-//                    perror("accept");
-//                    exit(EXIT_FAILURE);
-//                }
-//
-//                if (client_count == MAX_CLIENTS) {
-//                    printf("Connection rejected!\n");
-//                    shutdown(client_socket, SHUT_RDWR);
-//                    continue;
-//                }
-//
-//                // Client connection received - register with epoll.
-//                struct epoll_event event;
-//                event.events = EPOLLIN | EPOLLOUT;
-//                event.data = (epoll_data_t) client_socket;
-//                if (epoll_ctl(g_active_sockets, EPOLL_CTL_ADD, client_socket, &event) == -1) {
-//                    perror("register client socket descriptor with epoll");
-//                    exit(EXIT_FAILURE);
-//                }
-//
-//                int val_read;
-//                if ((val_read = read(client_socket, buffer, 1024)) == 0) {
-//                    // Connection closed - unregister socket.
-//                    if (epoll_ctl(g_active_sockets, EPOLL_CTL_DEL, client_socket, &event) == -1) {
-//                        perror("unregister client socket descriptor from epoll");
-//                        exit(EXIT_FAILURE);
-//                    }
-//                } else if (val_read != -1) {
-//                    buffer[MIN(val_read, BUFFER_SIZE - 1)] = '\0';
-//                    printf("OPENED: %s\n", buffer);
-//                } else {
-//                    perror("read from client socket");
-//                    exit(EXIT_FAILURE);
-//                }
-//            } else {
-//                if ((socket_events[i].events & EPOLLIN) == EPOLLIN) {
-//                    // TODO: move reads to global buffer to a separate function!
-//                    int val_read;
-//                    if ((val_read = read(fd, buffer, 1024)) == 0) {
-//                        // Connection closed - unregister socket.
-//                        if (epoll_ctl(g_active_sockets, EPOLL_CTL_DEL, fd, NULL) == -1) {
-//                            perror("unregister client socket descriptor from epoll");
-//                            exit(EXIT_FAILURE);
-//                        }
-//                    } else if (val_read != -1) {
-//                        buffer[MIN(val_read, BUFFER_SIZE - 1)] = '\0';
-//                        send(fd, buffer, strlen(buffer), 0);
-//                    } else {
-//                        perror("read from client socket");
-//                        exit(EXIT_FAILURE);
-//                    }
-//                }
-//            }
-//        }
-//    }
+    struct epoll_event socket_events[MAX_CLIENTS + 2];
+    int client_count = 0;
+
+    // Accept incoming connections.
+    while (1) {
+        int i, epoll_count = epoll_wait(g_server_state.active_sockets, socket_events, MAX_CLIENTS + 2, -1);
+        for (i = 0; i < epoll_count; i++) {
+            int fd = socket_events[i].data.fd;
+
+            if (fd == g_server_state.net_socket || fd == g_server_state.local_socket) {
+                int client_socket = accept(fd, NULL, NULL);
+                if (client_socket == -1) {
+                    perror("accept");
+                    exit(EXIT_FAILURE);
+                }
+
+                if (client_count == MAX_CLIENTS) {
+                    printf("Connection rejected!\n");
+                    shutdown(client_socket, SHUT_RDWR);
+                    continue;
+                }
+
+                // Client connection received - register the socket.
+                register_client(client_socket);
+            } else {
+                // Handle client socket events!
+                client_connection * conn = &(g_server_state.clients[-fd]);
+                int client_socket = conn -> socket_fd;
+
+                pthread_mutex_lock(&(conn -> state_mutex));
+                switch (conn -> state) {
+                    case FREE: handle_free(client_socket, socket_events[i].events); break;
+                    case TRANSMITTING: handle_trans(client_socket, socket_events[i].events); break;
+                    case PROCESSING: handle_proc(client_socket, socket_events[i].events); break;
+                    case RECEIVING: handle_recv(client_socket, socket_events[i].events); break;
+                }
+                pthread_mutex_unlock(&(conn -> state_mutex));  // TODO: maybe release it in handler?
+            }
+        }
+    }
 
     return NULL;
 }
