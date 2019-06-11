@@ -10,9 +10,136 @@
 #include <sys/un.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <pthread.h>
+#include <signal.h>
 #include "protocol.h"
+#include <sys/wait.h>
+
+char * TMP_FILE = "tmp";
+char g_filepath[CLIENT_NAME_MAX + 3 + 2];
+FILE * g_file;
+
+char * g_line = NULL;
 
 int g_socket = -1;
+char g_buffer[BUFFER_SIZE];
+pthread_mutex_t g_transmitter_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+
+void
+sigint_handler(int sig) {
+    pthread_mutex_lock(&g_transmitter_mutex);
+    char mtype = UNREGISTER;
+    send(g_socket, &mtype, 1, MSG_DONTWAIT);
+    free(g_line);
+    exit(EXIT_SUCCESS);
+}
+
+void *
+processing(void * args) {
+    sprintf(g_buffer, "./cnt_occ.sh %s", g_filepath);
+    FILE * script_input = popen(g_buffer, "r");
+    if (script_input == NULL) {
+        perror("FORK FAILED");
+    }
+    pclose(script_input);
+
+    size_t len = 0;
+    int total = 0, count;
+    g_file = fopen(g_filepath, "r");
+    fseek(g_file, 0, SEEK_SET);
+    while (getline(&g_line, &len, g_file) > 0) {
+        sscanf(g_line, "%d %s", &count, g_line);  // implicit assumption about max word length...
+        total += count;
+    }
+
+    fclose(g_file);
+    printf("RESULT: %d\n", total);
+    // TODO: send back
+    return NULL;
+}
+
+void
+flush_buffer(int size) {
+    int nw = 0;
+    while ((nw += fwrite(g_buffer, sizeof(char), size - nw, g_file)) < size) ;
+}
+
+void
+handle_task(void) {
+    printf("LOG: HANDLING TASK\n");
+    g_file = fopen(g_filepath, "w+");
+    if (g_file == NULL) {
+        perror("OPEN FILE");
+        exit(EXIT_FAILURE);
+    }
+
+    // Read task ID, length of incoming input and then input.
+    int bytes_read = 0;
+    while ((bytes_read += read(g_socket, g_buffer, 2 - bytes_read)) < 2) ;
+
+    int task_id = (int) ((g_buffer[0] << 8) | g_buffer[1]);
+    printf("TASK ID: %d\n", task_id);
+
+    while ((bytes_read += read(g_socket, g_buffer, 4 - bytes_read)) < 4) ;
+    int task_size = (int) ((g_buffer[0] << 8) | g_buffer[1]);
+    printf("TASK SIZE: %d\n", task_size);
+
+    int in_buffer = bytes_read = 0;
+
+    while (bytes_read < task_size) {
+        int b_read = read(g_socket, g_buffer, MIN(task_size - bytes_read, BUFFER_SIZE - in_buffer));
+        bytes_read += b_read;
+        in_buffer += b_read;
+
+        if (in_buffer == BUFFER_SIZE) {
+            flush_buffer(BUFFER_SIZE);
+            in_buffer = 0;
+        }
+    }
+
+    if (in_buffer > 0) {
+        flush_buffer(in_buffer);
+    }
+
+    fflush(g_file);
+    fsync(fileno(g_file));
+    fclose(g_file);
+
+    // So now task content is in the file - let another thread process it as we go back
+    // to respond to some pings.
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+
+    pthread_t processing_thread;
+    pthread_create(&processing_thread, &attr, processing, NULL);
+}
+
+void
+handle_ping(void) {
+    printf("LOG: HANDLING PING\n");
+    pthread_mutex_lock(&g_transmitter_mutex);
+
+    char mtype = PONG;
+    write(g_socket, &mtype, 1);
+
+    pthread_mutex_unlock(&g_transmitter_mutex);
+}
+
+void
+work() {
+    while(1) {
+        char mtype;
+        read(g_socket, &mtype, 1);
+
+        switch (mtype) {
+            case TASK: handle_task(); break;
+            case PING: handle_ping(); break;
+            default: fprintf(stderr, "PROTOCOL BREACH!\n"); close(g_socket); exit(EXIT_FAILURE);
+        }
+    }
+}
 
 int
 main(int argc, char * argv[]) {
@@ -67,10 +194,14 @@ main(int argc, char * argv[]) {
         exit(EXIT_FAILURE);
     }
 
+    signal(SIGINT, sigint_handler);
     connect(g_socket, address, sizeof(*address));
 
     // Open communication.
-    strncpy(name, argv[1], CLIENT_NAME_MAX);
+    strcpy(name, argv[1]);
+    strcpy(g_filepath, TMP_FILE);
+    strcat(g_filepath, name);
+
     char mtype = 0;
     write(g_socket, &mtype, 1);
     write(g_socket, name, CLIENT_NAME_MAX);
@@ -80,10 +211,13 @@ main(int argc, char * argv[]) {
         printf("REGISTERED!\n");
     } else if (mtype == NAME_EXISTS){
         printf("NAME EXISTS!\n");
+        exit(EXIT_FAILURE);
     } else {
-        printf("PROTOCOL BREACH\n");
+        printf("PROTOCOL BREACH!\n");
         exit(EXIT_FAILURE);
     }
+
+    work();
 
     return 0;
 }

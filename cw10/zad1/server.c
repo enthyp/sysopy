@@ -16,11 +16,8 @@
 #include <fcntl.h>
 #include "protocol.h"
 
-#define MIN(a,b) ((a) < (b)) ? (a) : (b)
 
 char * g_line;  // input line in the main thread
-
-// TODO: error handling (malloc, sockets etc.)
 
 typedef enum {
     INITIAL,        // Name tb checked
@@ -34,7 +31,7 @@ typedef enum {
 typedef struct {
     int id;
     int fd;
-    int tb_transmitted;
+    int size;
 } task;
 
 typedef struct {
@@ -45,7 +42,7 @@ typedef struct {
     int tb_received;
 
     char trans_buffer[BUFFER_SIZE];
-    int inbuf_pending;
+    int buf_head, inbuf_pending, tb_transmitted;
 
     connection_state state;
 
@@ -148,7 +145,8 @@ init_server(server_state * state, int port, char * socket_path) {
         state -> clients[i].socket_fd = -1;
         state -> clients[i].q_head = state -> clients[i].q_tail = state -> clients[i].q_full = 0;
         state -> clients[i].recv_buffer = NULL;
-        state -> clients[i].inbuf_pending = state -> clients[i].tb_received = 0;
+        state -> clients[i].buf_head = 0;
+        state -> clients[i].inbuf_pending = state -> clients[i].tb_transmitted = state -> clients[i].tb_received = 0;
         state -> clients[i].state = INITIAL;
         pthread_mutex_init(&(state -> clients[i].conn_mutex), NULL);
     }
@@ -167,6 +165,24 @@ enqueue_task(server_state * state, task * new_task) {
             if (*tail == state->clients[i].q_head) {
                 state->clients[i].q_full = 1;
             }
+            state->clients[i].state = WORKING;
+            state -> clients[i].tb_transmitted = new_task -> size + 5;
+
+            client_connection * conn = &(state -> clients[i]);
+            if (epoll_ctl(state -> active_sockets, EPOLL_CTL_DEL, conn -> socket_fd, NULL) == -1) {
+                perror("register socket descriptor with epoll");
+                exit(EXIT_FAILURE);
+            }
+
+            struct epoll_event event;
+            event.events = EPOLLOUT | EPOLLIN;
+            event.data = (epoll_data_t) i;
+
+            if (epoll_ctl(state -> active_sockets, EPOLL_CTL_ADD, conn -> socket_fd, &event) == -1) {
+                perror("register socket descriptor with epoll");
+                exit(EXIT_FAILURE);
+            }
+
             found = 1;
         }
 
@@ -183,6 +199,26 @@ enqueue_task(server_state * state, task * new_task) {
                 *tail = (*tail + 1) % CLIENT_TASK_MAX;
                 if (*tail == state->clients[i].q_head) {
                     state->clients[i].q_full = 1;
+                }
+
+                state -> clients[i].tb_transmitted = new_task -> size + 5;
+                if (state->clients[i].state == FREE) {
+                    state -> clients[i].state = WORKING;
+
+                    client_connection * conn = &(state -> clients[i]);
+                    if (epoll_ctl(state -> active_sockets, EPOLL_CTL_DEL, conn -> socket_fd, NULL) == -1) {
+                        perror("register socket descriptor with epoll");
+                        exit(EXIT_FAILURE);
+                    }
+
+                    struct epoll_event event;
+                    event.events = EPOLLOUT | EPOLLIN;
+                    event.data = (epoll_data_t) i;
+
+                    if (epoll_ctl(state -> active_sockets, EPOLL_CTL_ADD, conn -> socket_fd, &event) == -1) {
+                        perror("register socket descriptor with epoll");
+                        exit(EXIT_FAILURE);
+                    }
                 }
                 found = 1;
             }
@@ -202,16 +238,16 @@ post_task(char * line, server_state * state) {
         return;
     }
 
-    int tb_transmitted = lseek(fd, 0, SEEK_END);
+    int size = lseek(fd, 0, SEEK_END);
     lseek(fd, 0, SEEK_SET);
     int id = state -> task_id;
     state -> task_id += 1;
 
-    task new_task = { .id = id, .fd = fd, .tb_transmitted = tb_transmitted };
+    task new_task = { .id = id, .fd = fd, .size = size };
 
     if (enqueue_task(state, &new_task) != 0) {
         close(fd);
-        printf("Client task queues are full, try again later!\n");
+        printf("No empty client queue was found! Try again later.\n");
     } else {
         printf("Task posted.\n");
     }
@@ -255,8 +291,13 @@ int
 check_name(char * name, int id) {
     int i;
     for (i = 0; i < MAX_CLIENTS; i++) {
-        if (i != id && g_server_state.clients[i].socket_fd != -1 && strcmp(name, g_server_state.clients[i].name) == 0) {
-            return -1;
+        if (i != id) {
+            pthread_mutex_lock(&(g_server_state.clients[i].conn_mutex));
+            if (g_server_state.clients[i].socket_fd != -1 && strcmp(name, g_server_state.clients[i].name) == 0) {
+                pthread_mutex_unlock(&(g_server_state.clients[i].conn_mutex));
+                return -1;
+            }
+            pthread_mutex_unlock(&(g_server_state.clients[i].conn_mutex));
         }
     }
 
@@ -266,25 +307,28 @@ check_name(char * name, int id) {
 void
 handle_initial(int client_id) {
     printf("LOG: HANDLING INITIAL FOR ID: %d\n", client_id);
+
     // Receive full name, check it and drop connection or add client.
     client_connection * conn = &(g_server_state.clients[client_id]);
     char mtype;
-    recv(conn -> socket_fd, &mtype, 1, MSG_PEEK);
-    if (mtype != REGISTER) {
-        // Incorrect opening - drop it.
-        shutdown(conn -> socket_fd, SHUT_RDWR);
-        close(conn -> socket_fd);
-        conn -> socket_fd = -1;
-        return;
-    }
-
     if (conn -> recv_buffer == NULL) {
+        recv(conn -> socket_fd, &mtype, 1, MSG_PEEK);
+        if (mtype != REGISTER) {
+            // Incorrect opening - drop it.
+            close(conn -> socket_fd);
+            epoll_ctl(g_server_state.active_sockets, EPOLL_CTL_DEL, conn -> socket_fd, NULL);
+            conn -> socket_fd = -1;
+            pthread_mutex_lock(&(g_server_state.count_mutex));
+            g_server_state.clients_count -= 1;
+            pthread_mutex_unlock(&(g_server_state.count_mutex));
+            return;
+        }
+
         conn -> recv_buffer = (char *) malloc((CLIENT_NAME_MAX + 1) * sizeof(char));
         conn -> tb_received = CLIENT_NAME_MAX + 1;
     }
 
     int received = recv(conn -> socket_fd, conn -> recv_buffer, conn -> tb_received, MSG_DONTWAIT);
-    printf("RECEIVED: %d\n", received);
     conn -> tb_received -= received;
 
     if (conn -> tb_received == 0) {
@@ -294,25 +338,44 @@ handle_initial(int client_id) {
             printf("NAME EXISTS: %s\n", conn -> recv_buffer + 1);
             mtype = NAME_EXISTS;
             write(conn -> socket_fd, &mtype, 1);
-            shutdown(conn -> socket_fd, SHUT_RDWR);
             close(conn -> socket_fd);
+            epoll_ctl(g_server_state.active_sockets, EPOLL_CTL_DEL, conn -> socket_fd, NULL);
             conn -> socket_fd = -1;
             free(conn -> recv_buffer);
+            pthread_mutex_lock(&(g_server_state.count_mutex));
+            g_server_state.clients_count -= 1;
+            pthread_mutex_unlock(&(g_server_state.count_mutex));
         } else {
             // Name ok - add it.
-            strncpy(conn -> name, conn -> recv_buffer + 1, CLIENT_NAME_MAX);
             pthread_mutex_lock(&(g_server_state.clients[client_id].conn_mutex));
+            strncpy(conn -> name, conn -> recv_buffer + 1, CLIENT_NAME_MAX);
             conn -> state = FREE;
-            printf("NEW GUY: %s\n", conn -> name);
+            printf("NEW CLIENT: %s\n", conn -> name);
             mtype = OK_REGISTER;
             write(conn -> socket_fd, &mtype, 1);
+            epoll_ctl(g_server_state.active_sockets, EPOLL_CTL_DEL, conn -> socket_fd, NULL);
+
+            struct epoll_event event;
+            event.events = EPOLLIN;
+            event.data = (epoll_data_t) client_id;
+
+            if (epoll_ctl(g_server_state.active_sockets, EPOLL_CTL_ADD, conn -> socket_fd, &event) == -1) {
+                perror("register socket descriptor with epoll");
+                exit(EXIT_FAILURE);
+            }
+
             pthread_mutex_unlock(&(g_server_state.clients[client_id].conn_mutex));
         }
     }
 }
 
 void
-handle_free(int client_socket, uint32_t events) {
+handle_free(int client_id, uint32_t events) {
+    client_connection * conn = &(g_server_state.clients[client_id]);
+    printf("LOG: HANDLING FREE FOR: %s\n", conn -> name);
+
+    pthread_mutex_unlock(&(conn -> conn_mutex));
+
 //    if ((events & EPOLLIN) == EPOLLIN) {
 //        fprintf(stderr, "ERR: UNEXPECTED TRANSMISSION IN STATE: FREE\n");
 //        return;  // TODO: remove maybe?
@@ -336,33 +399,113 @@ handle_free(int client_socket, uint32_t events) {
 }
 
 void
-handle_working(int client_socket, uint32_t events) {
+evict(int);
+
+void
+handle_working(int client_id, uint32_t events) {
+    client_connection * conn = &(g_server_state.clients[client_id]);
+    printf("LOG: HANDLING WORKING FOR: %s\n", conn -> name);
+
+    if ((events & EPOLLIN) == EPOLLIN) {
+        // We can read from the socket.
+        char mtype;
+        if (recv(conn -> socket_fd, &mtype, 1, MSG_PEEK) == 0) {
+            printf("SOCKET CLOSED\n");
+            pthread_mutex_unlock(&(conn -> conn_mutex));
+            evict(client_id);
+        }
+        // TODO: pong maybe?
+    } else if ((events & EPOLLOUT) == EPOLLOUT) {
+        // We can write to the socket - start transmitting the task.
+        task * cur_task = &(conn -> task_queue[conn -> q_head]);
+
+        // Fill the buffer if starting.
+        if (conn -> tb_transmitted == cur_task -> size + 5) {
+            conn -> trans_buffer[0] = TASK;
+            conn -> trans_buffer[1] = (char) cur_task->id >> 8;
+            conn -> trans_buffer[2] = (char) cur_task->id;
+            conn -> trans_buffer[3] = (char) cur_task->size >> 8;
+            conn -> trans_buffer[4] = (char) cur_task->size;
+            int nr = read(cur_task -> fd, conn -> trans_buffer + 5, BUFFER_SIZE - 5);
+            conn -> inbuf_pending += nr + 5;
+            conn -> buf_head = 0;
+        }
+
+        if (conn -> inbuf_pending == 0) {
+            // Fill the buffer if necessary.
+            int nr = read(cur_task -> fd, conn -> trans_buffer, BUFFER_SIZE);
+            conn -> inbuf_pending += nr;
+            conn -> buf_head = 0;
+        }
+
+        int nw = send(conn -> socket_fd, conn -> trans_buffer + conn -> buf_head, conn -> inbuf_pending, MSG_DONTWAIT);
+        if (nw == -1) {
+            perror ("WORKING: WRITE");
+            exit(EXIT_FAILURE);
+        }
+        conn -> inbuf_pending -= nw;
+        conn -> tb_transmitted -= nw;
+        conn -> buf_head += nw;
+        sleep(1);
+        if (conn -> tb_transmitted == 0) {
+            conn -> state = PROCESSING;
+            close (cur_task -> fd);
+            conn -> q_head = (conn -> q_head + 1) % CLIENT_TASK_MAX;
+            if (conn -> q_head != conn -> q_tail) {
+                conn -> q_full = 0;
+            }
+
+            if (epoll_ctl(g_server_state.active_sockets, EPOLL_CTL_DEL, conn -> socket_fd, NULL) == -1) {
+                perror("register socket descriptor with epoll");
+                exit(EXIT_FAILURE);
+            }
+
+            struct epoll_event event;
+            event.events = EPOLLIN;
+            event.data = (epoll_data_t) client_id;
+
+            if (epoll_ctl(g_server_state.active_sockets, EPOLL_CTL_ADD, conn -> socket_fd, &event) == -1) {
+                perror("register socket descriptor with epoll");
+                exit(EXIT_FAILURE);
+            }
+        }
+        pthread_mutex_unlock(&(conn -> conn_mutex));
+
+    }
 
 }
 
 void
-handle_trans(int client_socket, uint32_t events) {
+handle_trans(int client_id, uint32_t events) {
+    client_connection * conn = &(g_server_state.clients[client_id]);
+    printf("LOG: HANDLING TRANSMITTING FOR: %s\n", conn -> name);
 
 }
 
 void
-handle_proc(int client_socket, uint32_t events) {
+handle_proc(int client_id, uint32_t events) {
+    client_connection * conn = &(g_server_state.clients[client_id]);
+    printf("LOG: HANDLING PROCESSING FOR: %s\n", conn -> name);
+
 
 }
 
 void
-handle_recv(int client_socket, uint32_t events) {
+handle_recv(int client_id, uint32_t events) {
+    client_connection * conn = &(g_server_state.clients[client_id]);
+    printf("LOG: HANDLING RECEIVING FOR: %s\n", conn -> name);
 
 }
 
 void
-evict(client_connection * conn) {
-    printf("LOG: HANDLING EVICTION\n");
+evict(int client_id) {
+    client_connection * conn = &(g_server_state.clients[client_id]);
+    printf("LOG: HANDLING EVICTION FOR: %s\n", conn -> name);
+
     // Drop fully initialized connection.
     pthread_mutex_lock(&(conn -> conn_mutex));
 
     epoll_ctl(g_server_state.active_sockets, EPOLL_CTL_ADD, conn -> socket_fd, NULL);
-    shutdown(conn -> socket_fd, SHUT_RDWR);
     conn -> socket_fd = -1;
 
     free(conn -> recv_buffer);
@@ -390,7 +533,9 @@ event_loop(void * arg) {
 
     // Accept incoming connections.
     while (1) {
+        printf("IN!\n");
         int i, epoll_count = epoll_wait(g_server_state.active_sockets, socket_events, MAX_CLIENTS + 2, -1);
+        printf("OUT!\n");
         for (i = 0; i < epoll_count; i++) {
             int fd = socket_events[i].data.fd;
 
@@ -404,7 +549,7 @@ event_loop(void * arg) {
                 pthread_mutex_lock(&(g_server_state.count_mutex));
                 if (g_server_state.clients_count == MAX_CLIENTS) {
                     printf("Connection rejected!\n");
-                    shutdown(client_socket, SHUT_RDWR);
+                    close(client_socket);
                     pthread_mutex_unlock(&(g_server_state.count_mutex));
                     continue;
                 } else {
@@ -430,24 +575,23 @@ event_loop(void * arg) {
 
                 handle_initial(j);
             } else {
-                // Handle client socket events!
+                // Handle client socket events.
                 client_connection * conn = &(g_server_state.clients[-fd]);
-                int client_socket = conn -> socket_fd;
-
                 pthread_mutex_lock(&(conn -> conn_mutex));
+
                 switch (conn -> state) {
                     case INITIAL: {
                         // Protocol breach - initialized client asks for init again.
-                        evict(conn);
+                        evict(-fd);
+                        pthread_mutex_unlock(&(conn -> conn_mutex));
                         break;
                     }
-                    case FREE: handle_free(client_socket, socket_events[i].events); break;
-                    case WORKING: handle_working(client_socket, socket_events[i].events); break;
-                    case TRANSMITTING: handle_trans(client_socket, socket_events[i].events); break;
-                    case PROCESSING: handle_proc(client_socket, socket_events[i].events); break;
-                    case RECEIVING: handle_recv(client_socket, socket_events[i].events); break;
+                    case FREE: handle_free(-fd, socket_events[i].events); break;
+                    case WORKING: handle_working(-fd, socket_events[i].events); break;
+                    case TRANSMITTING: handle_trans(-fd, socket_events[i].events); break;
+                    case PROCESSING: handle_proc(-fd, socket_events[i].events); break;
+                    case RECEIVING: handle_recv(-fd, socket_events[i].events); break;
                 }
-                pthread_mutex_unlock(&(conn -> conn_mutex));  // TODO: maybe release it in handler?
             }
         }
     }
@@ -500,6 +644,9 @@ main(int argc, char * argv[]) {
 
     while ((nr = getline(&g_line, &len, stdin)) > 0) {
         if (nr > 1) {
+            if (g_line[nr - 1] == '\n') {
+                g_line[nr - 1] = '\0';
+            }
             post_task(g_line, &g_server_state);
         }
     }

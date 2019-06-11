@@ -17,9 +17,14 @@
 #define UNREGISTER 04
 
 // Messages sent by server
-#define OK_REGISTER 00
-#define NAME_EXISTS 01
-#define TASK 02
-#define PING 03
+#define OK_REGISTER 05
+#define NAME_EXISTS 06
+#define TASK 07
+#define PING 010
+
+// Utilities.
+#define MIN(a,b) ((a) < (b)) ? (a) : (b)
+#define MAX(a,b) ((a) < (b)) ? (b) : (a)
+
 
 #endif // PROTOCOL_H
