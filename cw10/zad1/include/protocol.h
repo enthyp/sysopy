@@ -12,15 +12,14 @@
 // Messages sent by clients
 #define REGISTER 00
 #define TASK_RESULT 01
-#define WORD_RESULT 02
-#define PONG 03
-#define UNREGISTER 04
+#define PONG 02
+#define UNREGISTER 03
 
 // Messages sent by server
-#define OK_REGISTER 05
-#define NAME_EXISTS 06
-#define TASK 07
-#define PING 010
+#define OK_REGISTER 04
+#define NAME_EXISTS 05
+#define TASK 06
+#define PING 07
 
 // Utilities.
 #define MIN(a,b) ((a) < (b)) ? (a) : (b)

@@ -39,7 +39,7 @@ typedef struct {
     char name[CLIENT_NAME_MAX];
 
     char * recv_buffer;
-    int tb_received;
+    int rec_buf_head, tb_received;
 
     char trans_buffer[BUFFER_SIZE];
     int buf_head, inbuf_pending, tb_transmitted;
@@ -145,7 +145,7 @@ init_server(server_state * state, int port, char * socket_path) {
         state -> clients[i].socket_fd = -1;
         state -> clients[i].q_head = state -> clients[i].q_tail = state -> clients[i].q_full = 0;
         state -> clients[i].recv_buffer = NULL;
-        state -> clients[i].buf_head = 0;
+        state -> clients[i].buf_head = state -> clients[i].rec_buf_head = 0;
         state -> clients[i].inbuf_pending = state -> clients[i].tb_transmitted = state -> clients[i].tb_received = 0;
         state -> clients[i].state = INITIAL;
         pthread_mutex_init(&(state -> clients[i].conn_mutex), NULL);
@@ -176,7 +176,7 @@ enqueue_task(server_state * state, task * new_task) {
 
             struct epoll_event event;
             event.events = EPOLLOUT | EPOLLIN;
-            event.data = (epoll_data_t) i;
+            event.data = (epoll_data_t) -i;
 
             if (epoll_ctl(state -> active_sockets, EPOLL_CTL_ADD, conn -> socket_fd, &event) == -1) {
                 perror("register socket descriptor with epoll");
@@ -213,7 +213,7 @@ enqueue_task(server_state * state, task * new_task) {
 
                     struct epoll_event event;
                     event.events = EPOLLOUT | EPOLLIN;
-                    event.data = (epoll_data_t) i;
+                    event.data = (epoll_data_t) -i;
 
                     if (epoll_ctl(state -> active_sockets, EPOLL_CTL_ADD, conn -> socket_fd, &event) == -1) {
                         perror("register socket descriptor with epoll");
@@ -227,7 +227,7 @@ enqueue_task(server_state * state, task * new_task) {
         }
     }
 
-    return (1 - found);
+    return found ? i - 1 : -1;
 }
 
 void
@@ -245,11 +245,12 @@ post_task(char * line, server_state * state) {
 
     task new_task = { .id = id, .fd = fd, .size = size };
 
-    if (enqueue_task(state, &new_task) != 0) {
+    int client_id;
+    if ((client_id = enqueue_task(state, &new_task)) == -1) {
         close(fd);
         printf("No empty client queue was found! Try again later.\n");
     } else {
-        printf("Task posted.\n");
+        printf("Task posted for client %s.\n", g_server_state.clients[client_id].name);
     }
 }
 
@@ -321,6 +322,7 @@ handle_initial(int client_id) {
             pthread_mutex_lock(&(g_server_state.count_mutex));
             g_server_state.clients_count -= 1;
             pthread_mutex_unlock(&(g_server_state.count_mutex));
+            pthread_mutex_unlock(&(g_server_state.clients[client_id].conn_mutex));
             return;
         }
 
@@ -342,13 +344,16 @@ handle_initial(int client_id) {
             epoll_ctl(g_server_state.active_sockets, EPOLL_CTL_DEL, conn -> socket_fd, NULL);
             conn -> socket_fd = -1;
             free(conn -> recv_buffer);
+            conn -> recv_buffer = NULL;
             pthread_mutex_lock(&(g_server_state.count_mutex));
             g_server_state.clients_count -= 1;
             pthread_mutex_unlock(&(g_server_state.count_mutex));
+            pthread_mutex_unlock(&(g_server_state.clients[client_id].conn_mutex));
         } else {
             // Name ok - add it.
-            pthread_mutex_lock(&(g_server_state.clients[client_id].conn_mutex));
             strncpy(conn -> name, conn -> recv_buffer + 1, CLIENT_NAME_MAX);
+            free(conn -> recv_buffer);
+            conn -> recv_buffer = NULL;
             conn -> state = FREE;
             printf("NEW CLIENT: %s\n", conn -> name);
             mtype = OK_REGISTER;
@@ -357,7 +362,7 @@ handle_initial(int client_id) {
 
             struct epoll_event event;
             event.events = EPOLLIN;
-            event.data = (epoll_data_t) client_id;
+            event.data = (epoll_data_t) -client_id;
 
             if (epoll_ctl(g_server_state.active_sockets, EPOLL_CTL_ADD, conn -> socket_fd, &event) == -1) {
                 perror("register socket descriptor with epoll");
@@ -366,6 +371,8 @@ handle_initial(int client_id) {
 
             pthread_mutex_unlock(&(g_server_state.clients[client_id].conn_mutex));
         }
+    } else {
+        pthread_mutex_unlock(&(g_server_state.clients[client_id].conn_mutex));
     }
 }
 
@@ -374,48 +381,46 @@ handle_free(int client_id, uint32_t events) {
     client_connection * conn = &(g_server_state.clients[client_id]);
     printf("LOG: HANDLING FREE FOR: %s\n", conn -> name);
 
+    // TODO: ping handling only!
+
     pthread_mutex_unlock(&(conn -> conn_mutex));
-
-//    if ((events & EPOLLIN) == EPOLLIN) {
-//        fprintf(stderr, "ERR: UNEXPECTED TRANSMISSION IN STATE: FREE\n");
-//        return;  // TODO: remove maybe?
-//    } else {
-//        // TODO: move reads to global buffer to a separate function!
-//        int val_read;
-//        if ((val_read = read(fd, buffer, 1024)) == 0) {
-//            // Connection closed - unregister socket.
-//            if (epoll_ctl(g_active_sockets, EPOLL_CTL_DEL, fd, NULL) == -1) {
-//                perror("unregister client socket descriptor from epoll");
-//                exit(EXIT_FAILURE);
-//            }
-//        } else if (val_read != -1) {
-//            buffer[MIN(val_read, BUFFER_SIZE - 1)] = '\0';
-//            send(fd, buffer, strlen(buffer), 0);
-//        } else {
-//            perror("read from client socket");
-//            exit(EXIT_FAILURE);
-//        }
-//    }
 }
-
-void
-evict(int);
 
 void
 handle_working(int client_id, uint32_t events) {
     client_connection * conn = &(g_server_state.clients[client_id]);
     printf("LOG: HANDLING WORKING FOR: %s\n", conn -> name);
 
-    if ((events & EPOLLIN) == EPOLLIN) {
-        // We can read from the socket.
-        char mtype;
-        if (recv(conn -> socket_fd, &mtype, 1, MSG_PEEK) == 0) {
-            printf("SOCKET CLOSED\n");
-            pthread_mutex_unlock(&(conn -> conn_mutex));
-            evict(client_id);
+    if ((events & EPOLLOUT) == EPOLLOUT) {
+        conn -> state = TRANSMITTING;
+
+        if (epoll_ctl(g_server_state.active_sockets, EPOLL_CTL_DEL, conn -> socket_fd, NULL) == -1) {
+            perror("register socket descriptor with epoll");
+            exit(EXIT_FAILURE);
         }
+
+        struct epoll_event event;
+        event.events = EPOLLOUT;
+        event.data = (epoll_data_t) -client_id;
+
+        if (epoll_ctl(g_server_state.active_sockets, EPOLL_CTL_ADD, conn -> socket_fd, &event) == -1) {
+            perror("register socket descriptor with epoll");
+            exit(EXIT_FAILURE);
+        }
+
+    } else if ((events & EPOLLIN) == EPOLLIN) {
         // TODO: pong maybe?
-    } else if ((events & EPOLLOUT) == EPOLLOUT) {
+    }
+
+    pthread_mutex_unlock(&(conn -> conn_mutex));
+}
+
+void
+handle_trans(int client_id, uint32_t events) {
+    client_connection * conn = &(g_server_state.clients[client_id]);
+    printf("LOG: HANDLING TRANSMITTING FOR: %s\n", conn -> name);
+
+    if ((events & EPOLLOUT) == EPOLLOUT) {
         // We can write to the socket - start transmitting the task.
         task * cur_task = &(conn -> task_queue[conn -> q_head]);
 
@@ -440,20 +445,18 @@ handle_working(int client_id, uint32_t events) {
 
         int nw = send(conn -> socket_fd, conn -> trans_buffer + conn -> buf_head, conn -> inbuf_pending, MSG_DONTWAIT);
         if (nw == -1) {
-            perror ("WORKING: WRITE");
+            perror ("ERR IN TRANSMITTING STATE: WRITE");
             exit(EXIT_FAILURE);
         }
         conn -> inbuf_pending -= nw;
         conn -> tb_transmitted -= nw;
         conn -> buf_head += nw;
-        sleep(1);
+
         if (conn -> tb_transmitted == 0) {
             conn -> state = PROCESSING;
-            close (cur_task -> fd);
+            close(cur_task -> fd);
             conn -> q_head = (conn -> q_head + 1) % CLIENT_TASK_MAX;
-            if (conn -> q_head != conn -> q_tail) {
-                conn -> q_full = 0;
-            }
+            conn -> q_full = 0;
 
             if (epoll_ctl(g_server_state.active_sockets, EPOLL_CTL_DEL, conn -> socket_fd, NULL) == -1) {
                 perror("register socket descriptor with epoll");
@@ -462,23 +465,19 @@ handle_working(int client_id, uint32_t events) {
 
             struct epoll_event event;
             event.events = EPOLLIN;
-            event.data = (epoll_data_t) client_id;
+            event.data = (epoll_data_t) -client_id;
 
             if (epoll_ctl(g_server_state.active_sockets, EPOLL_CTL_ADD, conn -> socket_fd, &event) == -1) {
                 perror("register socket descriptor with epoll");
                 exit(EXIT_FAILURE);
             }
         }
+
         pthread_mutex_unlock(&(conn -> conn_mutex));
-
+    } else {
+        fprintf(stderr, "ERR IN STATE TRANSMITTING: UNEXPECTED EVENT!\n");
+        exit(EXIT_FAILURE);
     }
-
-}
-
-void
-handle_trans(int client_id, uint32_t events) {
-    client_connection * conn = &(g_server_state.clients[client_id]);
-    printf("LOG: HANDLING TRANSMITTING FOR: %s\n", conn -> name);
 
 }
 
@@ -487,7 +486,48 @@ handle_proc(int client_id, uint32_t events) {
     client_connection * conn = &(g_server_state.clients[client_id]);
     printf("LOG: HANDLING PROCESSING FOR: %s\n", conn -> name);
 
+    if ((events & EPOLLIN) == EPOLLIN) {
+        // We can read from the socket - this could be pong or results.
+        // TODO: handle pong
+        char mtype;
+        if (conn -> recv_buffer == NULL) {
+            read(conn -> socket_fd, &mtype, 1);
 
+            if (mtype != TASK_RESULT && mtype != PONG) {
+                // Drop it.
+                close(conn -> socket_fd);
+                epoll_ctl(g_server_state.active_sockets, EPOLL_CTL_DEL, conn -> socket_fd, NULL);
+                conn -> socket_fd = -1;
+                pthread_mutex_lock(&(g_server_state.count_mutex));
+                g_server_state.clients_count -= 1;
+                pthread_mutex_unlock(&(g_server_state.count_mutex));
+                pthread_mutex_unlock(&(g_server_state.clients[client_id].conn_mutex));
+                return;
+            } else if (mtype == TASK_RESULT) {
+                conn -> state = RECEIVING;
+
+                if (epoll_ctl(g_server_state.active_sockets, EPOLL_CTL_DEL, conn -> socket_fd, NULL) == -1) {
+                    perror("register socket descriptor with epoll");
+                    exit(EXIT_FAILURE);
+                }
+
+                struct epoll_event event;
+                event.events = EPOLLIN;
+                event.data = (epoll_data_t) -client_id;
+
+                if (epoll_ctl(g_server_state.active_sockets, EPOLL_CTL_ADD, conn -> socket_fd, &event) == -1) {
+                    perror("register socket descriptor with epoll");
+                    exit(EXIT_FAILURE);
+                }
+            } else {
+                // TODO: handle pong and quit.
+            }
+        } else {
+            printf("ERR IN STATE PROCESSING: buffer already allocated\n");
+        }
+    }
+
+    pthread_mutex_unlock(&(conn -> conn_mutex));
 }
 
 void
@@ -495,6 +535,79 @@ handle_recv(int client_id, uint32_t events) {
     client_connection * conn = &(g_server_state.clients[client_id]);
     printf("LOG: HANDLING RECEIVING FOR: %s\n", conn -> name);
 
+    if (conn -> recv_buffer == NULL) {
+        // Allocate memory for header.
+        conn -> recv_buffer = (char *) malloc(4 * sizeof(char));
+        conn -> tb_received = 4;
+        conn -> rec_buf_head = -1;  // another hack - need a state-specific struct in client_connection!
+        pthread_mutex_unlock(&(conn -> conn_mutex));
+        return;
+    }
+
+    if (conn -> rec_buf_head < 0) {
+        // Still receiving header.
+        printf("ON HEADER\n");
+        if (conn -> rec_buf_head != -5) {
+            int nr = recv(conn -> socket_fd,
+                    conn -> recv_buffer - conn -> rec_buf_head - 1,
+                    conn -> tb_received, MSG_DONTWAIT);
+            conn -> tb_received -= nr;
+            conn -> rec_buf_head -= nr;
+        } else {
+            // Received the whole header.
+            printf("HEADER DONE\n");
+            int tb_received = (int) (conn -> recv_buffer[2] << 8 | conn -> recv_buffer[3]) + 2;  // + 2 for task ID
+            conn -> recv_buffer = realloc(conn -> recv_buffer, tb_received);
+            conn -> tb_received = tb_received - 2;
+            conn -> rec_buf_head = 0;
+        }
+    } else {
+        // Header received, buffer allocated - go!
+        int nr = recv(conn -> socket_fd,
+                conn -> recv_buffer + 2 + conn -> rec_buf_head,
+                conn -> tb_received, MSG_DONTWAIT);
+        conn -> rec_buf_head += nr;
+        conn -> tb_received -= nr;
+        if (conn -> tb_received == 0) {
+            // Got the whole result - print it out and free the memory.
+            int task_id = (int) (conn -> recv_buffer[0] << 8 | conn -> recv_buffer[1]);
+            printf("RECEIVED TASK %d\n%s", task_id, conn -> recv_buffer + 2);
+            free(conn -> recv_buffer);
+            conn -> recv_buffer = NULL;
+
+            // Change state appropriately.
+            if (epoll_ctl(g_server_state.active_sockets, EPOLL_CTL_DEL, conn -> socket_fd, NULL) == -1) {
+                perror("register socket descriptor with epoll");
+                exit(EXIT_FAILURE);
+            }
+
+            if (conn -> q_head != conn -> q_tail || conn -> q_full) {
+                conn -> state = WORKING;
+
+                struct epoll_event event;
+                event.events = EPOLLIN | EPOLLOUT;
+                event.data = (epoll_data_t) -client_id;
+
+                if (epoll_ctl(g_server_state.active_sockets, EPOLL_CTL_ADD, conn -> socket_fd, &event) == -1) {
+                    perror("register socket descriptor with epoll");
+                    exit(EXIT_FAILURE);
+                }
+            } else {
+                conn -> state = FREE;
+
+                struct epoll_event event;
+                event.events = EPOLLIN;
+                event.data = (epoll_data_t) -client_id;
+
+                if (epoll_ctl(g_server_state.active_sockets, EPOLL_CTL_ADD, conn -> socket_fd, &event) == -1) {
+                    perror("register socket descriptor with epoll");
+                    exit(EXIT_FAILURE);
+                }
+            }
+        }
+    }
+
+    pthread_mutex_unlock(&(conn -> conn_mutex));
 }
 
 void
@@ -536,6 +649,7 @@ event_loop(void * arg) {
         printf("IN!\n");
         int i, epoll_count = epoll_wait(g_server_state.active_sockets, socket_events, MAX_CLIENTS + 2, -1);
         printf("OUT!\n");
+
         for (i = 0; i < epoll_count; i++) {
             int fd = socket_events[i].data.fd;
 
@@ -573,6 +687,8 @@ event_loop(void * arg) {
                     exit(EXIT_FAILURE);
                 }
 
+                client_connection * conn = &(g_server_state.clients[j]);
+                pthread_mutex_lock(&(conn -> conn_mutex));
                 handle_initial(j);
             } else {
                 // Handle client socket events.
@@ -580,12 +696,7 @@ event_loop(void * arg) {
                 pthread_mutex_lock(&(conn -> conn_mutex));
 
                 switch (conn -> state) {
-                    case INITIAL: {
-                        // Protocol breach - initialized client asks for init again.
-                        evict(-fd);
-                        pthread_mutex_unlock(&(conn -> conn_mutex));
-                        break;
-                    }
+                    case INITIAL: handle_initial(-fd); break;
                     case FREE: handle_free(-fd, socket_events[i].events); break;
                     case WORKING: handle_working(-fd, socket_events[i].events); break;
                     case TRANSMITTING: handle_trans(-fd, socket_events[i].events); break;

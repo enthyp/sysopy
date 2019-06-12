@@ -18,6 +18,7 @@
 char * TMP_FILE = "tmp";
 char g_filepath[CLIENT_NAME_MAX + 3 + 2];
 FILE * g_file;
+int g_task_id;
 
 char * g_line = NULL;
 
@@ -35,6 +36,40 @@ sigint_handler(int sig) {
     exit(EXIT_SUCCESS);
 }
 
+void
+send_results() {
+    g_file = fopen(g_filepath, "r");
+    if (g_file == NULL) {
+        perror("OPEN FILE");
+        exit(EXIT_FAILURE);
+    }
+
+    // Prepare message header: task ID, length of the output and then output
+    int tb_transmitted;
+    fseek(g_file, 0, SEEK_END);
+    tb_transmitted = ftell(g_file) + 5 + 1; // + header + terminator
+    fseek(g_file, 0, SEEK_SET);
+
+    char * transmitter_buffer = (char *) malloc(tb_transmitted * sizeof(char));
+
+    transmitter_buffer[0] = TASK_RESULT;
+    transmitter_buffer[1] = (char) (g_task_id >> 8);
+    transmitter_buffer[2] = (char) g_task_id;
+    transmitter_buffer[3] = (char) ((tb_transmitted - 5) >> 8);
+    transmitter_buffer[4] = (char) (tb_transmitted - 5);
+
+    fread(transmitter_buffer + 5, sizeof(char), tb_transmitted - 5, g_file);
+    transmitter_buffer[tb_transmitted - 1] = '\0';
+    pthread_mutex_lock(&g_transmitter_mutex);
+
+    // Send it (can block).
+    write(g_socket, transmitter_buffer, tb_transmitted);
+
+    pthread_mutex_unlock(&g_transmitter_mutex);
+    free(transmitter_buffer);
+    fclose(g_file);
+}
+
 void *
 processing(void * args) {
     sprintf(g_buffer, "./cnt_occ.sh %s", g_filepath);
@@ -44,18 +79,7 @@ processing(void * args) {
     }
     pclose(script_input);
 
-    size_t len = 0;
-    int total = 0, count;
-    g_file = fopen(g_filepath, "r");
-    fseek(g_file, 0, SEEK_SET);
-    while (getline(&g_line, &len, g_file) > 0) {
-        sscanf(g_line, "%d %s", &count, g_line);  // implicit assumption about max word length...
-        total += count;
-    }
-
-    fclose(g_file);
-    printf("RESULT: %d\n", total);
-    // TODO: send back
+    send_results();
     return NULL;
 }
 
@@ -78,8 +102,8 @@ handle_task(void) {
     int bytes_read = 0;
     while ((bytes_read += read(g_socket, g_buffer, 2 - bytes_read)) < 2) ;
 
-    int task_id = (int) ((g_buffer[0] << 8) | g_buffer[1]);
-    printf("TASK ID: %d\n", task_id);
+    g_task_id = (int) ((g_buffer[0] << 8) | g_buffer[1]);
+    printf("TASK ID: %d\n", g_task_id);
 
     while ((bytes_read += read(g_socket, g_buffer, 4 - bytes_read)) < 4) ;
     int task_size = (int) ((g_buffer[0] << 8) | g_buffer[1]);
@@ -131,12 +155,15 @@ void
 work() {
     while(1) {
         char mtype;
-        read(g_socket, &mtype, 1);
+        if (read(g_socket, &mtype, 1) == 0) {
+            fprintf(stderr, "Connection lost!\n");
+            exit(EXIT_FAILURE);
+        }
 
         switch (mtype) {
             case TASK: handle_task(); break;
             case PING: handle_ping(); break;
-            default: fprintf(stderr, "PROTOCOL BREACH!\n"); close(g_socket); exit(EXIT_FAILURE);
+            default: fprintf(stderr, "PROTOCOL BREACH! %d received\n", mtype); close(g_socket); exit(EXIT_FAILURE);
         }
     }
 }
@@ -164,9 +191,9 @@ main(int argc, char * argv[]) {
         addr.sun_family = AF_UNIX;
         strncpy(addr.sun_path, argv[3], UNIX_PATH_MAX);
         address = (struct sockaddr *) &addr;
-    } else if (strcmp(argv[2], "net")) {
+    } else if (strcmp(argv[2], "net") == 0) {
         if (argc != 5) {
-            fprintf(stderr, "local requires 4 arguments!\n");
+            fprintf(stderr, "net requires 4 arguments!\n");
             exit(EXIT_FAILURE);
         }
 
