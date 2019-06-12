@@ -16,11 +16,8 @@ handle_closed(void * handler, server_state * s_state, int client_id, conn_state 
         case FREE: {
             return ((handler_free * )handler)->handle_closed(handler, s_state, client_id);
         }
-        case BUSY: {
-            return ((handler_free * )handler)->handle_closed(handler, s_state, client_id);
-        }
         case TRANSMITTING: {
-            return ((handler_free * )handler)->handle_closed(handler, s_state, client_id);
+            return ((handler_trans * )handler)->handle_closed(handler, s_state, client_id);
         }
         case PROCESSING: {
             return ((handler_free * )handler)->handle_closed(handler, s_state, client_id);
@@ -41,12 +38,6 @@ handle_receive(void * handler, server_state * s_state, int client_id, conn_state
         case FREE: {
             return ((handler_free * )handler)->handle_receive(handler, s_state, client_id);
         }
-        case BUSY: {
-            return ((handler_free * )handler)->handle_receive(handler, s_state, client_id);
-        }
-        case TRANSMITTING: {
-            return ((handler_free * )handler)->handle_receive(handler, s_state, client_id);
-        }
         case PROCESSING: {
             return ((handler_free * )handler)->handle_receive(handler, s_state, client_id);
         }
@@ -63,17 +54,8 @@ handle_send(void * handler, server_state * s_state, int client_id, conn_state c_
         case INITIAL: {
             return ((handler_initial * )handler)->handle_send(handler, s_state, client_id);
         }
-        case FREE: {
-            return ((handler_free * )handler)->handle_send(handler, s_state, client_id);
-        }
-        case BUSY: {
-            return ((handler_free * )handler)->handle_send(handler, s_state, client_id);
-        }
         case TRANSMITTING: {
-            return ((handler_free * )handler)->handle_send(handler, s_state, client_id);
-        }
-        case PROCESSING: {
-            return ((handler_free * )handler)->handle_send(handler, s_state, client_id);
+            return ((handler_trans * )handler)->handle_send(handler, s_state, client_id);
         }
         case RECEIVING: {
             return ((handler_free * )handler)->handle_send(handler, s_state, client_id);

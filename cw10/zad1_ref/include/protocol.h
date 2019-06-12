@@ -1,6 +1,12 @@
 #ifndef PROTOCOL_H
 #define PROTOCOL_H
 
+// Task ID encoded on 2 bytes.
+#define ID_BYTES 2
+
+// Task length encoded on 4 bytes.
+#define LEN_BYTES 4
+
 // Message types - sent by clients.
 #define REGISTER 00
 #define TASK_RESULT 01

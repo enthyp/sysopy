@@ -50,10 +50,7 @@ enqueue_task(server_state * state, task * new_task) {
             }
 
             pthread_mutex_unlock(&(q -> mutex));
-            conn -> state = BUSY;
-
-            del_event(state, i);
-            add_event(state, i, EPOLLIN | EPOLLOUT);
+            free_to_trans(conn -> handler, &g_state, i);
 
             found = 1;
         }
@@ -69,6 +66,8 @@ enqueue_task(server_state * state, task * new_task) {
             pthread_mutex_lock(&(conn -> mutex));
 
             if (conn -> state != INITIAL && !(q -> q_full)) {
+                pthread_mutex_lock(&(q -> mutex));
+
                 int *tail = &(q -> q_tail);
                 memcpy(q -> q_table + *tail, new_task, sizeof(*new_task));
                 *tail = (*tail + 1) % CLIENT_TASK_MAX;
@@ -76,17 +75,16 @@ enqueue_task(server_state * state, task * new_task) {
                     q -> q_full = 1;
                 }
 
-                if (conn -> state == FREE) {
-                    conn -> state = BUSY;
+                pthread_mutex_unlock(&(q -> mutex));
 
-                    del_event(state, i);
-                    add_event(state, i, EPOLLIN | EPOLLOUT);
+                if (conn -> state == FREE) {
+                    free_to_trans(conn -> handler, &g_state, i);
                 }
 
                 found = 1;
             }
 
-            pthread_mutex_lock(&(conn -> mutex));
+            pthread_mutex_unlock(&(conn -> mutex));
         }
     }
 
