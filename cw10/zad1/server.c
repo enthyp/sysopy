@@ -38,10 +38,10 @@ typedef struct {
     int socket_fd;
     char name[CLIENT_NAME_MAX];
 
-    char * recv_buffer;
+    unsigned char * recv_buffer;
     int rec_buf_head, tb_received;
 
-    char trans_buffer[BUFFER_SIZE];
+    unsigned char trans_buffer[BUFFER_SIZE];
     int buf_head, inbuf_pending, tb_transmitted;
 
     connection_state state;
@@ -326,16 +326,20 @@ handle_initial(int client_id) {
             return;
         }
 
-        conn -> recv_buffer = (char *) malloc((CLIENT_NAME_MAX + 1) * sizeof(char));
+        conn -> recv_buffer = (unsigned char *) malloc((CLIENT_NAME_MAX + 1) * sizeof(unsigned char));
         conn -> tb_received = CLIENT_NAME_MAX + 1;
     }
 
     int received = recv(conn -> socket_fd, conn -> recv_buffer, conn -> tb_received, MSG_DONTWAIT);
     conn -> tb_received -= received;
 
+    int i = 0;
+    while (i <= CLIENT_NAME_MAX && conn -> recv_buffer[i + 1] != '\0') i++;
+    memcpy(conn -> name, conn -> recv_buffer + 1, i);
+
     if (conn -> tb_received == 0) {
         // Whole name received - check.
-        if (check_name(conn -> recv_buffer + 1, client_id) != 0) {
+        if (check_name(conn -> name, client_id) != 0) {
             // Name repetition - drop it.
             printf("NAME EXISTS: %s\n", conn -> recv_buffer + 1);
             mtype = NAME_EXISTS;
@@ -351,7 +355,6 @@ handle_initial(int client_id) {
             pthread_mutex_unlock(&(g_server_state.clients[client_id].conn_mutex));
         } else {
             // Name ok - add it.
-            strncpy(conn -> name, conn -> recv_buffer + 1, CLIENT_NAME_MAX);
             free(conn -> recv_buffer);
             conn -> recv_buffer = NULL;
             conn -> state = FREE;
@@ -380,7 +383,8 @@ void
 handle_free(int client_id, uint32_t events) {
     client_connection * conn = &(g_server_state.clients[client_id]);
     printf("LOG: HANDLING FREE FOR: %s\n", conn -> name);
-
+    char mtype;
+    read(conn -> socket_fd, &mtype, 1);
     // TODO: ping handling only!
 
     pthread_mutex_unlock(&(conn -> conn_mutex));
@@ -427,10 +431,11 @@ handle_trans(int client_id, uint32_t events) {
         // Fill the buffer if starting.
         if (conn -> tb_transmitted == cur_task -> size + 5) {
             conn -> trans_buffer[0] = TASK;
-            conn -> trans_buffer[1] = (char) cur_task->id >> 8;
-            conn -> trans_buffer[2] = (char) cur_task->id;
-            conn -> trans_buffer[3] = (char) cur_task->size >> 8;
-            conn -> trans_buffer[4] = (char) cur_task->size;
+            conn -> trans_buffer[1] = (unsigned char) (cur_task->id >> 8);
+            conn -> trans_buffer[2] = (unsigned char) cur_task->id;
+            conn -> trans_buffer[3] = (unsigned char) (cur_task->size >> 8);
+            conn -> trans_buffer[4] = (unsigned char) cur_task->size;
+
             int nr = read(cur_task -> fd, conn -> trans_buffer + 5, BUFFER_SIZE - 5);
             conn -> inbuf_pending += nr + 5;
             conn -> buf_head = 0;
@@ -537,7 +542,7 @@ handle_recv(int client_id, uint32_t events) {
 
     if (conn -> recv_buffer == NULL) {
         // Allocate memory for header.
-        conn -> recv_buffer = (char *) malloc(4 * sizeof(char));
+        conn -> recv_buffer = (unsigned char *) malloc(4 * sizeof(unsigned char));
         conn -> tb_received = 4;
         conn -> rec_buf_head = -1;  // another hack - need a state-specific struct in client_connection!
         pthread_mutex_unlock(&(conn -> conn_mutex));
@@ -559,6 +564,7 @@ handle_recv(int client_id, uint32_t events) {
             int tb_received = (int) (conn -> recv_buffer[2] << 8 | conn -> recv_buffer[3]) + 2;  // + 2 for task ID
             conn -> recv_buffer = realloc(conn -> recv_buffer, tb_received);
             conn -> tb_received = tb_received - 2;
+            printf("TB: %d\n", conn -> tb_received);
             conn -> rec_buf_head = 0;
         }
     } else {
@@ -691,8 +697,22 @@ event_loop(void * arg) {
                 pthread_mutex_lock(&(conn -> conn_mutex));
                 handle_initial(j);
             } else {
-                // Handle client socket events.
                 client_connection * conn = &(g_server_state.clients[-fd]);
+
+                char mtype;
+                if ((socket_events[i].events | EPOLLIN) == EPOLLIN) {
+                    if (recv(conn -> socket_fd, &mtype, 1, MSG_PEEK) == 0) {
+                        fprintf(stderr, "CONNECTION LOST FOR %s!\n", conn -> name);
+                        pthread_mutex_lock(&(conn -> conn_mutex));
+                        close(conn -> socket_fd);
+                        conn -> socket_fd = -1;
+                        // TODO: depends on state - free memory etc.
+                        pthread_mutex_unlock(&(conn -> conn_mutex));
+                        continue;
+                    }
+                }
+
+                // Handle client socket events.
                 pthread_mutex_lock(&(conn -> conn_mutex));
 
                 switch (conn -> state) {

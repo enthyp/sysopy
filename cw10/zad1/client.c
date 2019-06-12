@@ -23,7 +23,7 @@ int g_task_id;
 char * g_line = NULL;
 
 int g_socket = -1;
-char g_buffer[BUFFER_SIZE];
+unsigned char g_buffer[BUFFER_SIZE];
 pthread_mutex_t g_transmitter_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 
@@ -58,13 +58,14 @@ send_results() {
     transmitter_buffer[3] = (char) ((tb_transmitted - 5) >> 8);
     transmitter_buffer[4] = (char) (tb_transmitted - 5);
 
-    fread(transmitter_buffer + 5, sizeof(char), tb_transmitted - 5, g_file);
+    fread(transmitter_buffer + 5, sizeof(char), tb_transmitted - 6, g_file);
     transmitter_buffer[tb_transmitted - 1] = '\0';
     pthread_mutex_lock(&g_transmitter_mutex);
 
     // Send it (can block).
     write(g_socket, transmitter_buffer, tb_transmitted);
 
+    printf("DONE!\n");
     pthread_mutex_unlock(&g_transmitter_mutex);
     free(transmitter_buffer);
     fclose(g_file);
@@ -72,8 +73,9 @@ send_results() {
 
 void *
 processing(void * args) {
-    sprintf(g_buffer, "./cnt_occ.sh %s", g_filepath);
-    FILE * script_input = popen(g_buffer, "r");
+    char buffer[100];
+    sprintf(buffer, "./cnt_occ.sh %s", g_filepath);
+    FILE * script_input = popen(buffer, "r");
     if (script_input == NULL) {
         perror("FORK FAILED");
     }
@@ -102,11 +104,13 @@ handle_task(void) {
     int bytes_read = 0;
     while ((bytes_read += read(g_socket, g_buffer, 2 - bytes_read)) < 2) ;
 
-    g_task_id = (int) ((g_buffer[0] << 8) | g_buffer[1]);
+    g_task_id = (g_buffer[0] << 8);
+    g_task_id |= g_buffer[1];
     printf("TASK ID: %d\n", g_task_id);
 
     while ((bytes_read += read(g_socket, g_buffer, 4 - bytes_read)) < 4) ;
-    int task_size = (int) ((g_buffer[0] << 8) | g_buffer[1]);
+    int task_size = (g_buffer[0] << 8);
+    task_size |= g_buffer[1];
     printf("TASK SIZE: %d\n", task_size);
 
     int in_buffer = bytes_read = 0;
