@@ -13,7 +13,10 @@
 #include <pthread.h>
 #include <signal.h>
 #include "protocol.h"
+#include "common.h"
 #include <sys/wait.h>
+
+#define BUFFER_SIZE 1024
 
 char * TMP_FILE = "tmp";
 char g_filepath[CLIENT_NAME_MAX + 3 + 2];
@@ -179,7 +182,6 @@ main(int argc, char * argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    char name[CLIENT_NAME_MAX];
     struct sockaddr * address;
 
     if (strcmp(argv[2], "local") == 0) {
@@ -229,6 +231,7 @@ main(int argc, char * argv[]) {
     connect(g_socket, address, sizeof(*address));
 
     // Open communication.
+    char name[CLIENT_NAME_MAX];
     strcpy(name, argv[1]);
     strcpy(g_filepath, TMP_FILE);
     strcat(g_filepath, name);
