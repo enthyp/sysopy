@@ -6,6 +6,8 @@
 #include "server.h"
 #include "state_initial.h"
 #include "state_free.h"
+#include "state_trans.h"
+#include "state_busy.h"
 
 // Prototypes defined in this file.
 int free_receive(void * self, server_state * state, int client_id);
@@ -84,16 +86,16 @@ free_evict(void * p_self, server_state * state, int client_id) {
 }
 
 int
-free_to_trans(handler_free * self, server_state * state, int client_id) {
+free_to_busy(handler_free * self, server_state * state, int client_id) {
     printf("LOG: FREE -> TRANS FOR ID: %d\n", client_id);
     client_conn * conn = &(state -> clients[client_id].connection);
 
-    conn -> handler = (handler_trans *) malloc(sizeof(handler_trans));
+    conn -> handler = (handler_busy *) malloc(sizeof(handler_busy));
     if (conn -> handler == NULL) {
         perror("swap connection handler");
         exit(EXIT_FAILURE);
     }
-    if (initialize_handler_trans((handler_trans *) conn -> handler) == -1) {
+    if (initialize_handler_busy((handler_busy *) conn -> handler) == -1) {
         perror("initialize connection handler");
         exit(EXIT_FAILURE);
     }
@@ -101,7 +103,7 @@ free_to_trans(handler_free * self, server_state * state, int client_id) {
     free(self);
 
     // Mutex is locked outside, when enqueueing.
-    conn -> state = TRANSMITTING;
+    conn -> state = BUSY;
 
     del_event(state, client_id);
     add_event(state, client_id, EPOLLOUT);

@@ -16,6 +16,7 @@ typedef enum {
     TRANSMITTING,   // Sending task data
     PROCESSING,     // Waiting for results
     RECEIVING,      // Receiving results data
+    BUSY            // Between transmitting and receiving (with tasks in the queue)
 } conn_state;
 
 typedef struct {

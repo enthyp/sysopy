@@ -9,7 +9,16 @@
 #include "server.h"
 #include "protocol.h"
 #include "common.h"
+#include "state_initial.h"
+#include "state_free.h"
+#include "state_proc.h"
+#include "state_trans.h"
 
+
+// Prototypes defined in this file.
+int trans_send(void * p_self, server_state * state, int client_id);
+int trans_close(void * p_self, server_state * state, int client_id);
+int trans_to_proc(handler_trans * self, server_state * state, int client_id);
 
 int
 initialize_handler_trans(handler_trans * handler) {
@@ -52,7 +61,7 @@ trans_send(void * p_self, server_state * state, int client_id) {
         self -> tb_transmitted = new_task.size;
 
         // Dequeue for real.
-        free(q -> q_table[q -> q_head]);
+        free(&(q -> q_table[q -> q_head]));
         q -> q_head = (q -> q_head + 1) % CLIENT_TASK_MAX;
         q -> q_full = 0;
 
@@ -95,7 +104,7 @@ trans_send(void * p_self, server_state * state, int client_id) {
 }
 
 int
-trans_cleanup(handler_initial * self, server_state * state, int client_id) {
+trans_cleanup(handler_trans * self, server_state * state, int client_id) {
     client_conn * conn = &(state -> clients[client_id].connection);
 
     // Erase socket and its events.
@@ -141,7 +150,7 @@ trans_close(void * p_self, server_state * state, int client_id) {
 }
 
 int
-trans_to_proc(handler_initial * self, server_state * state, int client_id) {
+trans_to_proc(handler_trans * self, server_state * state, int client_id) {
     printf("LOG: TRANS -> PROC FOR ID: %d\n", client_id);
     client_conn * conn = &(state -> clients[client_id].connection);
 

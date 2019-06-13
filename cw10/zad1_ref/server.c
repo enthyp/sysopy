@@ -50,7 +50,7 @@ enqueue_task(server_state * state, task * new_task) {
             }
 
             pthread_mutex_unlock(&(q -> mutex));
-            free_to_trans(conn -> handler, &g_state, i);
+            free_to_busy(conn -> handler, &g_state, i);
 
             found = 1;
         }
@@ -78,7 +78,7 @@ enqueue_task(server_state * state, task * new_task) {
                 pthread_mutex_unlock(&(q -> mutex));
 
                 if (conn -> state == FREE) {
-                    free_to_trans(conn -> handler, &g_state, i);
+                    free_to_busy(conn -> handler, &g_state, i);
                 }
 
                 found = 1;

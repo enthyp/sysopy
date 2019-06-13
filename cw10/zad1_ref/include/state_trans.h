@@ -12,6 +12,7 @@ typedef struct handler_trans handler_trans;
 struct handler_trans {
     int state;
 
+    // TODO: could add a flag so that pinger can check if transmission still going
     int fd, task_id;
     unsigned char transmitter_buffer[TRANS_BUFFER_SIZE];
     int tb_transmitted, in_buffer, head;
