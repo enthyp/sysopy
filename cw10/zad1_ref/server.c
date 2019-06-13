@@ -116,7 +116,22 @@ enqueue(server_state * state, char * line) {
 }
 
 void
+cleanup(server_state * state) {
+    int i;
+    for (i = 0; i < CLIENTS_MAX; i++) {
+        client_conn * conn = &(state -> clients[i].connection);
+        free(conn -> handler);
+    }
+
+    close(state -> local_socket);
+    unlink(state -> local_socket_path);
+    close(state -> net_socket);
+    free(g_line);
+}
+
+void
 sigint_handler(int sig) {
+    cleanup(&g_state);
     exit(EXIT_SUCCESS);
 }
 

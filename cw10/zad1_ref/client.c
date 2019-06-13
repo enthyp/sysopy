@@ -75,7 +75,6 @@ send_results() {
 
 void *
 processing(void * args) {
-    sleep(5);
     char buffer[100];
     sprintf(buffer, "./script/cnt_occ.sh %s", g_filepath);
     FILE * script_input = popen(buffer, "r");
