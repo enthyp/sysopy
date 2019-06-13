@@ -6,6 +6,8 @@ INCL_DIR := ./include
 OBJ := $(SRC:%.c=$(BUILD_DIR)/%.o)
 SERVER_OBJ := $(subst $(BUILD_DIR)/client.o,,$(OBJ))
 CLIENT_OBJ := $(subst $(BUILD_DIR)/server.o,,$(OBJ))
+CLIENT_OBJ := $(patsubst $(BUILD_DIR)/state%.o,,$(CLIENT_OBJ))  # server wstates should -> server directory
+
 
 DEPS := $(OBJ:.o=.d)
 

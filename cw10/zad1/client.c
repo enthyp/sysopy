@@ -13,7 +13,10 @@
 #include <pthread.h>
 #include <signal.h>
 #include "protocol.h"
+#include "common.h"
 #include <sys/wait.h>
+
+#define BUFFER_SIZE 1024
 
 char * TMP_FILE = "tmp";
 char g_filepath[CLIENT_NAME_MAX + 3 + 2];
@@ -45,20 +48,19 @@ send_results() {
     }
 
     // Prepare message header: task ID, length of the output and then output
+    int header_size = ID_BYTES + LEN_BYTES;
     int tb_transmitted;
     fseek(g_file, 0, SEEK_END);
-    tb_transmitted = ftell(g_file) + 5 + 1; // + header + terminator
+    tb_transmitted = ftell(g_file) + header_size + 1; // + header + terminator
     fseek(g_file, 0, SEEK_SET);
 
-    char * transmitter_buffer = (char *) malloc(tb_transmitted * sizeof(char));
+    unsigned char * transmitter_buffer = (unsigned char *) malloc(tb_transmitted * sizeof(unsigned char));
 
     transmitter_buffer[0] = TASK_RESULT;
-    transmitter_buffer[1] = (char) (g_task_id >> 8);
-    transmitter_buffer[2] = (char) g_task_id;
-    transmitter_buffer[3] = (char) ((tb_transmitted - 5) >> 8);
-    transmitter_buffer[4] = (char) (tb_transmitted - 5);
+    serialize(transmitter_buffer + 1, g_task_id, ID_BYTES);
+    serialize(transmitter_buffer + 1 + ID_BYTES, tb_transmitted - header_size - 1, LEN_BYTES);
 
-    fread(transmitter_buffer + 5, sizeof(char), tb_transmitted - 6, g_file);
+    fread(transmitter_buffer + header_size + 1, sizeof(unsigned char), tb_transmitted - header_size - 1, g_file);
     transmitter_buffer[tb_transmitted - 1] = '\0';
     pthread_mutex_lock(&g_transmitter_mutex);
 
@@ -74,7 +76,7 @@ send_results() {
 void *
 processing(void * args) {
     char buffer[100];
-    sprintf(buffer, "./cnt_occ.sh %s", g_filepath);
+    sprintf(buffer, "./script/cnt_occ.sh %s", g_filepath);
     FILE * script_input = popen(buffer, "r");
     if (script_input == NULL) {
         perror("FORK FAILED");
@@ -102,15 +104,15 @@ handle_task(void) {
 
     // Read task ID, length of incoming input and then input.
     int bytes_read = 0;
-    while ((bytes_read += read(g_socket, g_buffer, 2 - bytes_read)) < 2) ;
+    while ((bytes_read += read(g_socket, g_buffer, ID_BYTES - bytes_read)) < ID_BYTES);
 
-    g_task_id = (g_buffer[0] << 8);
-    g_task_id |= g_buffer[1];
+    deserialize(g_buffer, &g_task_id, ID_BYTES);
     printf("TASK ID: %d\n", g_task_id);
 
-    while ((bytes_read += read(g_socket, g_buffer, 4 - bytes_read)) < 4) ;
-    int task_size = (g_buffer[0] << 8);
-    task_size |= g_buffer[1];
+    bytes_read = 0;
+    while ((bytes_read += read(g_socket, g_buffer, LEN_BYTES - bytes_read)) < LEN_BYTES);
+    int task_size;
+    deserialize(g_buffer, &task_size, LEN_BYTES);
     printf("TASK SIZE: %d\n", task_size);
 
     int in_buffer = bytes_read = 0;
@@ -179,7 +181,6 @@ main(int argc, char * argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    char name[CLIENT_NAME_MAX];
     struct sockaddr * address;
 
     if (strcmp(argv[2], "local") == 0) {
@@ -229,6 +230,7 @@ main(int argc, char * argv[]) {
     connect(g_socket, address, sizeof(*address));
 
     // Open communication.
+    char name[CLIENT_NAME_MAX];
     strcpy(name, argv[1]);
     strcpy(g_filepath, TMP_FILE);
     strcat(g_filepath, name);
