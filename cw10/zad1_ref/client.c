@@ -59,11 +59,7 @@ send_results() {
     transmitter_buffer[0] = TASK_RESULT;
     serialize(transmitter_buffer + 1, g_task_id, ID_BYTES);
     serialize(transmitter_buffer + 1 + ID_BYTES, tb_transmitted - header_size - 1, LEN_BYTES);
-    int a;
-    deserialize(transmitter_buffer + 1, &a, ID_BYTES);
-    printf("ID: %d\n", a);
-    deserialize(transmitter_buffer + 1 + ID_BYTES, &a, LEN_BYTES);
-    printf("SIZE: %d\n", a);
+
     fread(transmitter_buffer + header_size + 1, sizeof(unsigned char), tb_transmitted - header_size - 1, g_file);
     transmitter_buffer[tb_transmitted - 1] = '\0';
     pthread_mutex_lock(&g_transmitter_mutex);

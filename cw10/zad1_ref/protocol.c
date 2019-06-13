@@ -1,11 +1,13 @@
 #include "protocol.h"
+#include <stdio.h>
 
 int
 serialize(unsigned char * head, int to_serialize, int num_bytes) {
+    *(head + num_bytes - 1) = (unsigned char) to_serialize;
     int i;
-    for (i = 0; i < num_bytes; i++) {
-        to_serialize >>= (i * 8);
-        *(head + num_bytes - i - 1) = (unsigned char) to_serialize;
+    for (i = num_bytes - 2; i >= 0; i--) {
+        to_serialize >>= 8;
+        *(head + i) = (unsigned char) to_serialize;
     }
     return 0;
 }
