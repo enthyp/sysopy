@@ -74,10 +74,9 @@ trans_send(void * p_self, server_state * state, int client_id) {
             self -> in_buffer += nr;
         }
 
-        int nw = send(conn -> socket_fd,
+        int nw = write(conn -> socket_fd,
                 self -> transmitter_buffer + self -> head,
-                self -> in_buffer,
-                MSG_DONTWAIT);
+                self -> in_buffer);
         self -> in_buffer -= nw;
         self -> tb_transmitted -= nw;
         self -> head += nw;

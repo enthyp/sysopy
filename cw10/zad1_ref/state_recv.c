@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <errno.h>
 
 #include "server.h"
 #include "protocol.h"
@@ -49,10 +50,9 @@ recv_receive(void * p_self, server_state * state, int client_id) {
 
     if (self -> state == 1) {
         // Receiving header.
-        int nr = recv(conn -> socket_fd,
+        int nr = read(conn -> socket_fd,
                 self -> receiver_buffer + self -> head,
-                self -> tb_received,
-                MSG_DONTWAIT);
+                self -> tb_received);
         self -> tb_received -= nr;
         self -> head += nr;
 
@@ -60,9 +60,8 @@ recv_receive(void * p_self, server_state * state, int client_id) {
             // We got message header - parse it and prepare.
             deserialize(self -> receiver_buffer, &(self -> task_id), ID_BYTES);
             deserialize(self -> receiver_buffer + ID_BYTES, &(self -> tb_received), LEN_BYTES);
-            printf("ID: %d\n", self -> task_id);
             self -> receiver_buffer = realloc(self -> receiver_buffer, self -> tb_received);
-            printf("SIZE: %d\n", self -> tb_received);
+
             if (self -> receiver_buffer == NULL) {
                 perror("reallocate receiver memory");
                 exit(EXIT_FAILURE);
@@ -78,6 +77,11 @@ recv_receive(void * p_self, server_state * state, int client_id) {
                       self -> receiver_buffer + self -> head,
                       self -> tb_received,
                       MSG_DONTWAIT);
+        if (nr == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            pthread_mutex_unlock(&(conn -> mutex));
+            return 0;
+        }
+
         self -> tb_received -= nr;
         self -> head += nr;
 

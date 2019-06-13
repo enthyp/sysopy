@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <string.h>
+#include <errno.h>
 
 #include "state_initial.h"
 #include "state_free.h"
@@ -47,6 +48,7 @@ initial_receive(void * p_self, server_state * state, int client_id) {
         // First entry - check if message type OK.
         char mtype;
         read(conn -> socket_fd, &mtype, 1);
+
         if (mtype != REGISTER) {
             // Close connection and clean up - without responding.
             return initial_cleanup(self, state, client_id);
@@ -58,6 +60,10 @@ initial_receive(void * p_self, server_state * state, int client_id) {
     if (self -> state > 0) {
         // Subsequent entries - receive.
         int nr = recv(conn -> socket_fd, self -> receiver_buffer, self -> tb_received, MSG_DONTWAIT);
+        if (nr == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            return 0;
+        }
+
         self -> tb_received -= nr;
 
         if (self -> tb_received == 0) {
@@ -126,7 +132,7 @@ initial_send(void * p_self, server_state * state, int client_id) {
         return initial_cleanup(self, state, client_id);
     }
 
-    fprintf(stderr, "UNEXPECTED! INITIAL/SEND!!!");
+    fprintf(stderr, "UNEXPECTED: INITIAL/SEND OF %d!!!\n", self -> return_code);
     exit(EXIT_FAILURE);
 }
 
