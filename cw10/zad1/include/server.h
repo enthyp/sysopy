@@ -61,4 +61,8 @@ typedef struct {
     int events;     // epoll file descriptor
 } server_state;
 
+int add_event(server_state * state, int client_id, uint32_t events);
+
+int del_event(server_state * state, int client_id);
+
 #endif // SERVER_H

@@ -349,6 +349,26 @@ event_loop(void * arg) {
 
 void *
 ping(void * arg) {
+    while (1) {
+        int i;
+        for (i = 0; i < CLIENTS_MAX; i++) {
+            client_conn * conn = &(g_state.clients[i].connection);
+            if (conn -> socket_fd == -1) {
+                continue;
+            }
+
+            pthread_mutex_lock(&(conn -> mutex));
+            if (pinged(conn -> handler, &g_state, i, conn -> state)) {
+                printf("NO PING RESPONSE FOR ID: %d!\n", i);
+                handle_close(conn -> handler, &g_state, i, conn -> state);
+            } else {
+                ping_client(conn -> handler, &g_state, i, conn -> state);
+            }
+            pthread_mutex_unlock(&(conn -> mutex));
+        }
+
+        sleep(3);
+    }
 
     return NULL;
 }

@@ -74,6 +74,28 @@ handle_send(void * handler, server_state * s_state, int client_id, conn_state c_
 }
 
 int
+pinged(void * handler, server_state * s_state, int client_id, conn_state c_state) {
+    switch (c_state) {
+        case INITIAL: {
+            return ((handler_initial * )handler)->pinged;
+        }
+        case FREE: {
+            return ((handler_free * )handler)->pinged;
+        }
+        case BUSY: {
+            return ((handler_busy * )handler)->pinged;
+        }
+        case PROCESSING: {
+            return ((handler_proc * )handler)->pinged;
+        }
+        case RECEIVING: {
+            return ((handler_recv * )handler)->pinged;
+        }
+        default: fprintf(stderr, "ERR ROUTING PINGED FOR state %d!\n", c_state); exit(EXIT_FAILURE);
+    }
+}
+
+int
 ping_client(void * handler, server_state * s_state, int client_id, conn_state c_state) {
     switch (c_state) {
         case INITIAL: {
