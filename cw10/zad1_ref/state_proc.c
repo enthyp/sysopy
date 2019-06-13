@@ -15,17 +15,17 @@
 #include "protocol.h"
 
 int proc_receive(void * p_self, server_state * state, int client_id);
-int proc_evict(void * p_self, server_state * state, int client_id);
 int proc_close(void * p_self, server_state * state, int client_id);
 int proc_to_recv(handler_proc * self, server_state * state, int client_id);
+int proc_ping(void * self, server_state * state, int client_id);
 
 int
 initialize_handler_proc(handler_proc * handler) {
-    handler -> pong = 0;
+    handler -> pong = handler -> pinged = 0;
 
     handler -> handle_receive = proc_receive;
     handler -> handle_closed = proc_close;
-    handler -> handle_evict = proc_evict;
+    handler -> ping = proc_ping;
 
     return 0;
 }
@@ -38,11 +38,12 @@ proc_receive(void * p_self, server_state * state, int client_id) {
 
     read(conn -> socket_fd, &(self -> pong), 1);
     if (self -> pong != PONG && self -> pong != TASK_RESULT) {
-        return proc_evict(self, state, client_id);
+        fprintf(stderr, "ERR: UNEXPECTED MSG IN PROC/RECEIVE FOR ID: %d\n", client_id);
+        return proc_close(self, state, client_id);
     }
 
     if (self -> pong == PONG) {
-        // TODO: handle pong!
+        self -> pinged = 0;
     }
 
     if (self -> pong == TASK_RESULT) {
@@ -79,9 +80,7 @@ proc_cleanup(handler_proc * self, server_state * state, int client_id) {
 
     free(self);
 
-    pthread_mutex_lock(&(conn -> mutex));
     conn -> state = INITIAL;
-    pthread_mutex_unlock(&(conn -> mutex));
 
     del_event(state, client_id);
     add_event(state, client_id, EPOLLIN);
@@ -92,12 +91,6 @@ int
 proc_close(void * p_self, server_state * state, int client_id) {
     handler_proc * self = (handler_proc *) p_self;
     printf("LOG: PROC/CLOSE FOR ID: %d\n", client_id);
-    return proc_cleanup(self, state, client_id);
-}
-
-int proc_evict(void * p_self, server_state * state, int client_id) {
-    handler_proc * self = (handler_proc *) p_self;
-    printf("LOG: PROC/EVICT FOR ID: %d\n", client_id);
     return proc_cleanup(self, state, client_id);
 }
 
@@ -121,7 +114,21 @@ proc_to_recv(handler_proc * self, server_state * state, int client_id) {
 
     del_event(state, client_id);
     add_event(state, client_id, EPOLLIN);
-    pthread_mutex_unlock(&(conn -> mutex));
 
+    return 0;
+}
+
+int
+proc_ping(void * p_self, server_state * state, int client_id) {
+    handler_proc * self = (handler_proc *) p_self;
+    printf("LOG: PROC/PING FOR ID: %d\n", client_id);
+    client_conn * conn = &(state -> clients[client_id].connection);
+
+    self -> pong = PING;
+    if (send(conn -> socket_fd, &(self -> pong), 1, MSG_DONTWAIT) == -1) {
+        fprintf(stderr, "ERR: FAILED TO PROC/PING FOR ID: %d\n", client_id);
+    }
+
+    self -> pinged = 1;
     return 0;
 }

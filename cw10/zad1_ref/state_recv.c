@@ -19,14 +19,16 @@
 int recv_receive(void * p_self, server_state * state, int client_id);
 int recv_close(void * p_self, server_state * state, int client_id);
 int received(handler_recv * self, server_state * state, int client_id);
+int recv_ping(void * p_self, server_state * state, int client_id);
 
 int
 initialize_handler_recv(handler_recv * handler) {
     handler -> receiver_buffer = NULL;
-    handler -> state = handler -> head = 0;
+    handler -> state = handler -> head = handler -> pinged = 0;
 
     handler -> handle_receive = recv_receive;
     handler -> handle_closed = recv_close;
+    handler -> ping = recv_ping;
 
     return 0;
 }
@@ -36,6 +38,8 @@ recv_receive(void * p_self, server_state * state, int client_id) {
     handler_recv * self = (handler_recv *) p_self;
     printf("LOG: RECV/RECEIVE FOR ID: %d\n", client_id);
     client_conn * conn = &(state -> clients[client_id].connection);
+
+    self -> pinged = 0;
 
     if (self -> state == 0) {
         // First entry - prepare the buffer to take header and start receiving.
@@ -95,7 +99,6 @@ recv_receive(void * p_self, server_state * state, int client_id) {
         }
     }
 
-    pthread_mutex_unlock(&(conn -> mutex));
     return 0;
 }
 
@@ -167,13 +170,12 @@ received(handler_recv * self, server_state * state, int client_id) {
         free(self -> receiver_buffer);
         free(self);
 
-        // We have the lock from recv_receive.
         conn -> state = FREE;
 
         del_event(state, client_id);
         add_event(state, client_id, EPOLLIN);
         pthread_mutex_unlock(&(q -> mutex));
-        pthread_mutex_unlock(&(conn -> mutex));
+
         return 0;
     }
 
@@ -199,7 +201,13 @@ received(handler_recv * self, server_state * state, int client_id) {
     add_event(state, client_id, EPOLLIN | EPOLLOUT);
 
     pthread_mutex_unlock(&(q -> mutex));
-    pthread_mutex_unlock(&(conn -> mutex));
+    return 0;
+}
 
+int
+recv_ping(void * p_self, server_state * state, int client_id) {
+    handler_recv * self = (handler_recv *) p_self;
+    printf("LOG: RECV/PING FOR ID: %d\n", client_id);
+    self -> pinged = 1;
     return 0;
 }

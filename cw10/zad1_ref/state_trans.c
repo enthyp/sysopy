@@ -19,13 +19,16 @@
 int trans_send(void * p_self, server_state * state, int client_id);
 int trans_close(void * p_self, server_state * state, int client_id);
 int trans_to_proc(handler_trans * self, server_state * state, int client_id);
+int trans_ping(void * p_self, server_state * state, int client_id);
 
 int
 initialize_handler_trans(handler_trans * handler) {
+    handler -> pinged = 0;
     handler -> state = handler -> in_buffer = handler -> head = 0;
 
     handler -> handle_send = trans_send;
     handler -> handle_closed = trans_close;
+    handler -> ping = trans_ping;
 
     return 0;
 }
@@ -36,8 +39,7 @@ trans_send(void * p_self, server_state * state, int client_id) {
     printf("LOG: TRANS/SEND FOR ID: %d\n", client_id);
     client_conn * conn = &(state -> clients[client_id].connection);
 
-    // Here we are not at risk - active states (trans/rec) are not being pinged!
-    pthread_mutex_unlock(&(conn -> mutex));
+    self -> pinged = 0;
 
     if (self -> state == 0) {
         // First entry - load task, prepare the buffer and initialize communication.
@@ -118,9 +120,7 @@ trans_cleanup(handler_trans * self, server_state * state, int client_id) {
     close(self -> fd);
     free(self);
 
-    pthread_mutex_lock(&(conn -> mutex));
     conn -> state = INITIAL;
-    pthread_mutex_unlock(&(conn -> mutex));
 
     del_event(state, client_id);
     add_event(state, client_id, EPOLLIN);
@@ -154,12 +154,18 @@ trans_to_proc(handler_trans * self, server_state * state, int client_id) {
     close(self -> fd);
     free(self);
 
-    pthread_mutex_lock(&(conn -> mutex));
     conn -> state = PROCESSING;
-    pthread_mutex_unlock(&(conn -> mutex));
 
     del_event(state, client_id);
     add_event(state, client_id, EPOLLIN);
 
+    return 0;
+}
+
+int
+trans_ping(void * p_self, server_state * state, int client_id) {
+    handler_trans * self = (handler_trans *) p_self;
+    printf("LOG: TRANS/PING FOR ID: %d\n", client_id);
+    self -> pinged = 1;
     return 0;
 }

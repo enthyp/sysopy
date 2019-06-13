@@ -22,16 +22,18 @@ int initial_send(void * self, server_state * state, int client_id);
 int initial_close(void * self, server_state * state, int client_id);
 int initial_to_free(handler_initial * self, server_state * state, int client_id);
 int initial_cleanup(handler_initial * self, server_state * state, int client_id);
+int initial_ping(void * self, server_state * state, int client_id);
 
 
 int
 initialize_handler(handler_initial * handler) {
-    handler -> state = handler -> return_code = 0;
+    handler -> state = handler -> return_code = handler -> pinged = 0;
     handler -> tb_received = CLIENT_NAME_MAX;
 
     handler -> handle_receive = initial_receive;
     handler -> handle_send = initial_send;
     handler -> handle_closed = initial_close;
+    handler -> ping = initial_ping;
 
     return 0;
 }
@@ -41,8 +43,11 @@ initial_receive(void * p_self, server_state * state, int client_id) {
     handler_initial * self = (handler_initial *) p_self;
     printf("LOG: INITIAL/RECEIVE FOR ID: %d\n", client_id);
     client_conn * conn = &(state -> clients[client_id].connection);
-    // Here we are not at risk.
-    pthread_mutex_unlock(&(conn -> mutex));
+
+    if (self -> pinged == 1) {
+        printf("LOG: PING HANDLED FOR ID: %d\n", client_id);
+        self -> pinged = 0;
+    }
 
     if (self -> state == 0) {
         // First entry - check if message type OK.
@@ -118,8 +123,11 @@ initial_send(void * p_self, server_state * state, int client_id) {
     handler_initial * self = (handler_initial *) p_self;
     printf("LOG: INITIAL/SEND FOR ID: %d\n", client_id);
     client_conn * conn = &(state -> clients[client_id].connection);
-    // Here we are not at risk.
-    pthread_mutex_unlock(&(conn -> mutex));
+
+    if (self -> pinged == 1) {
+        printf("LOG: PING HANDLED FOR ID: %d\n", client_id);
+        self -> pinged = 0;
+    }
 
     if (self -> return_code == OK_REGISTER) {
         send(conn -> socket_fd, &(self -> return_code), 1, MSG_DONTWAIT);
@@ -132,8 +140,8 @@ initial_send(void * p_self, server_state * state, int client_id) {
         return initial_cleanup(self, state, client_id);
     }
 
-    fprintf(stderr, "UNEXPECTED: INITIAL/SEND OF %d!!!\n", self -> return_code);
-    exit(EXIT_FAILURE);
+    fprintf(stderr, "UNEXPECTED: INITIAL/SEND WITH CODE %d!\n", self -> return_code);
+    return initial_cleanup(self, state, client_id);
 }
 
 int
@@ -151,8 +159,9 @@ initial_cleanup(handler_initial * self, server_state * state, int client_id) {
     pthread_mutex_unlock(&(state -> count_mutex));
 
     // Reinitialize handler.
-    self -> state = self -> return_code = 0;
+    self -> state = self -> return_code = self -> pinged = 0;
     self -> tb_received = CLIENT_NAME_MAX;
+
     return 0;
 }
 
@@ -180,12 +189,18 @@ initial_to_free(handler_initial * self, server_state * state, int client_id) {
 
     free(self);
 
-    pthread_mutex_lock(&(conn -> mutex));
     conn -> state = FREE;
-    pthread_mutex_unlock(&(conn -> mutex));
 
     del_event(state, client_id);
     add_event(state, client_id, EPOLLIN);
 
+    return 0;
+}
+
+int
+initial_ping(void * p_self, server_state * state, int client_id) {
+    handler_initial * self = (handler_initial *) p_self;
+    printf("LOG: INITIAL/PING FOR ID: %d\n", client_id);
+    self -> pinged = 1;
     return 0;
 }

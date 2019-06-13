@@ -16,18 +16,18 @@
 // Prototypes defined in this file.
 int busy_send(void * p_self, server_state * state, int client_id);
 int busy_receive(void * p_self, server_state * state, int client_id);
-int busy_evict(void * p_self, server_state * state, int client_id);
 int busy_close(void * p_self, server_state * state, int client_id);
 int busy_to_trans(handler_busy * self, server_state * state, int client_id);
+int busy_ping(void * self, server_state * state, int client_id);
 
 int
 initialize_handler_busy(handler_busy * handler) {
-    handler -> pong = 0;
+    handler -> pong = handler -> pinged = 0;
 
     handler -> handle_send = busy_send;
     handler -> handle_receive = busy_receive;
     handler -> handle_closed = busy_close;
-    handler -> handle_evict = busy_evict;
+    handler -> ping = busy_ping;
 
     return 0;
 }
@@ -40,9 +40,9 @@ busy_receive(void * p_self, server_state * state, int client_id) {
 
     read(conn -> socket_fd, &(self -> pong), 1);
     if (self -> pong != PONG) {
-        return busy_evict(self, state, client_id);
+        return busy_close(self, state, client_id);
     } else {
-        // TODO: handle pong!
+        self -> pinged = 0;
     }
 
     return 0;
@@ -52,6 +52,8 @@ int
 busy_send(void * p_self, server_state * state, int client_id) {
     handler_busy *self = (handler_busy *) p_self;
     printf("LOG: BUSY/SEND FOR ID: %d\n", client_id);
+
+    self -> pinged = 0;
 
     return busy_to_trans(self, state, client_id);
 }
@@ -100,11 +102,6 @@ busy_close(void * p_self, server_state * state, int client_id) {
     return busy_cleanup(self, state, client_id);
 }
 
-int busy_evict(void * p_self, server_state * state, int client_id) {
-    handler_busy * self = (handler_busy *) p_self;
-    printf("LOG: BUSY/EVICT FOR ID: %d\n", client_id);
-    return busy_cleanup(self, state, client_id);
-}
 
 int
 busy_to_trans(handler_busy * self, server_state * state, int client_id) {
@@ -122,12 +119,25 @@ busy_to_trans(handler_busy * self, server_state * state, int client_id) {
     }
 
     free(self);
-
     conn -> state = TRANSMITTING;
 
     del_event(state, client_id);
     add_event(state, client_id, EPOLLOUT);
 
-    pthread_mutex_unlock(&(conn -> mutex));
+    return 0;
+}
+
+int
+busy_ping(void * p_self, server_state * state, int client_id) {
+    handler_busy * self = (handler_busy *) p_self;
+    printf("LOG: BUSY/CLOSE FOR ID: %d\n", client_id);
+    client_conn * conn = &(state -> clients[client_id].connection);
+
+    self -> pong = PING;
+    if (send(conn -> socket_fd, &(self -> pong), 1, MSG_DONTWAIT) == -1) {
+        fprintf(stderr, "ERR: FAILED TO BUSY/PING FOR ID: %d\n", client_id);
+    }
+
+    self -> pinged = 1;
     return 0;
 }

@@ -301,10 +301,10 @@ event_loop(void * arg) {
                 }
 
                 // Handle initialization.
-                printf("a\n");
                 client_conn * conn = &(g_state.clients[client_id].connection);
                 pthread_mutex_lock(&(conn -> mutex));
                 handle_receive(conn -> handler, &g_state, client_id, conn -> state);
+                pthread_mutex_unlock(&(conn -> mutex));
             } else {
                 client_conn * conn = &(g_state.clients[id].connection);
                 pthread_mutex_lock(&(conn -> mutex));
@@ -312,19 +312,19 @@ event_loop(void * arg) {
                 if ((socket_events[i].events & EPOLLIN) == EPOLLIN) {
                     // Check if connection still up.
                     char mtype;
-                    if (recv(conn -> socket_fd, &mtype, 1, MSG_PEEK) == 0) {
-                        printf("b\n");
-                        handle_closed(conn -> handler, &g_state, id, conn -> state);
+                    if (recv(conn -> socket_fd, &mtype, 1, MSG_PEEK) == 0 ||
+                        mtype == UNREGISTER) {
+                        handle_close(conn -> handler, &g_state, id, conn -> state);
                     } else {
                         // Input data ready.
-                        printf("c\n");
                         handle_receive(conn -> handler, &g_state, id, conn -> state);
                     }
                 } else {
                     // Ready for output.
-                    printf("d\n");
                     handle_send(conn -> handler, &g_state, id, conn -> state);
                 }
+
+                pthread_mutex_unlock(&(conn -> mutex));
             }
         }
     }

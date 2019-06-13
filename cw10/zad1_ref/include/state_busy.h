@@ -8,11 +8,12 @@ typedef struct handler_busy handler_busy;
 
 struct handler_busy {
     unsigned char pong;
+    int pinged;
 
     int (*handle_receive)(void * self, server_state * state, int client_id);
     int (*handle_send)(void * self, server_state * state, int client_id);
     int (*handle_closed)(void * self, server_state * state, int client_id);
-    int (*handle_evict)(void * self, server_state * state, int client_id);
+    int (*ping)(void * self, server_state * state, int client_id);
 };
 
 int initialize_handler_busy(handler_busy * handler);
