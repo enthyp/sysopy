@@ -50,7 +50,6 @@ trans_send(void * p_self, server_state * state, int client_id) {
         self -> tb_transmitted = new_task.size;
 
         // Dequeue for real.
-        free(&(q -> q_table[q -> q_head]));
         q -> q_head = (q -> q_head + 1) % CLIENT_TASK_MAX;
         q -> q_full = 0;
 
@@ -60,6 +59,11 @@ trans_send(void * p_self, server_state * state, int client_id) {
         self -> transmitter_buffer[0] = TASK;
         serialize(self -> transmitter_buffer + 1, self -> task_id, ID_BYTES);
         serialize(self -> transmitter_buffer + 1 + ID_BYTES, self -> tb_transmitted, LEN_BYTES);
+        int a;
+        deserialize(self -> transmitter_buffer + 1, &a, ID_BYTES);
+        printf("ID: %d\n", a);
+        deserialize(self -> transmitter_buffer + 1 + ID_BYTES, &a, LEN_BYTES);
+        printf("SIZE: %d\n", a);
 
         self -> in_buffer = 1 + ID_BYTES + LEN_BYTES;
         self -> tb_transmitted += self -> in_buffer;
@@ -161,7 +165,7 @@ trans_to_proc(handler_trans * self, server_state * state, int client_id) {
     pthread_mutex_unlock(&(conn -> mutex));
 
     del_event(state, client_id);
-    add_event(state, client_id, EPOLLIN | EPOLLOUT);
+    add_event(state, client_id, EPOLLIN);
 
     return 0;
 }

@@ -60,7 +60,9 @@ recv_receive(void * p_self, server_state * state, int client_id) {
             // We got message header - parse it and prepare.
             deserialize(self -> receiver_buffer, &(self -> task_id), ID_BYTES);
             deserialize(self -> receiver_buffer + ID_BYTES, &(self -> tb_received), LEN_BYTES);
+            printf("ID: %d\n", self -> task_id);
             self -> receiver_buffer = realloc(self -> receiver_buffer, self -> tb_received);
+            printf("SIZE: %d\n", self -> tb_received);
             if (self -> receiver_buffer == NULL) {
                 perror("reallocate receiver memory");
                 exit(EXIT_FAILURE);
@@ -167,6 +169,7 @@ received(handler_recv * self, server_state * state, int client_id) {
         del_event(state, client_id);
         add_event(state, client_id, EPOLLIN);
         pthread_mutex_unlock(&(q -> mutex));
+        pthread_mutex_unlock(&(conn -> mutex));
         return 0;
     }
 

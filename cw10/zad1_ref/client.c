@@ -58,8 +58,12 @@ send_results() {
 
     transmitter_buffer[0] = TASK_RESULT;
     serialize(transmitter_buffer + 1, g_task_id, ID_BYTES);
-    serialize(transmitter_buffer + 1 + ID_BYTES, g_task_id, LEN_BYTES);
-
+    serialize(transmitter_buffer + 1 + ID_BYTES, tb_transmitted - header_size - 1, LEN_BYTES);
+    int a;
+    deserialize(transmitter_buffer + 1, &a, ID_BYTES);
+    printf("ID: %d\n", a);
+    deserialize(transmitter_buffer + 1 + ID_BYTES, &a, LEN_BYTES);
+    printf("SIZE: %d\n", a);
     fread(transmitter_buffer + header_size + 1, sizeof(unsigned char), tb_transmitted - header_size - 1, g_file);
     transmitter_buffer[tb_transmitted - 1] = '\0';
     pthread_mutex_lock(&g_transmitter_mutex);
@@ -76,7 +80,7 @@ send_results() {
 void *
 processing(void * args) {
     char buffer[100];
-    sprintf(buffer, "./cnt_occ.sh %s", g_filepath);
+    sprintf(buffer, "./script/cnt_occ.sh %s", g_filepath);
     FILE * script_input = popen(buffer, "r");
     if (script_input == NULL) {
         perror("FORK FAILED");
@@ -104,12 +108,13 @@ handle_task(void) {
 
     // Read task ID, length of incoming input and then input.
     int bytes_read = 0;
-    while ((bytes_read += read(g_socket, g_buffer, 2 - bytes_read)) < 2) ;
+    while ((bytes_read += read(g_socket, g_buffer, ID_BYTES - bytes_read)) < ID_BYTES);
 
     deserialize(g_buffer, &g_task_id, ID_BYTES);
     printf("TASK ID: %d\n", g_task_id);
 
-    while ((bytes_read += read(g_socket, g_buffer, 4 - bytes_read)) < 4) ;
+    bytes_read = 0;
+    while ((bytes_read += read(g_socket, g_buffer, LEN_BYTES - bytes_read)) < LEN_BYTES);
     int task_size;
     deserialize(g_buffer, &task_size, LEN_BYTES);
     printf("TASK SIZE: %d\n", task_size);

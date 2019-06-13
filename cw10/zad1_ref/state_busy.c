@@ -123,12 +123,11 @@ busy_to_trans(handler_busy * self, server_state * state, int client_id) {
 
     free(self);
 
-    pthread_mutex_lock(&(conn -> mutex));
     conn -> state = TRANSMITTING;
-    pthread_mutex_unlock(&(conn -> mutex));
 
     del_event(state, client_id);
     add_event(state, client_id, EPOLLOUT);
 
+    pthread_mutex_unlock(&(conn -> mutex));
     return 0;
 }

@@ -117,13 +117,11 @@ proc_to_recv(handler_proc * self, server_state * state, int client_id) {
     }
 
     free(self);
-
-    pthread_mutex_lock(&(conn -> mutex));
     conn -> state = RECEIVING;
-    pthread_mutex_unlock(&(conn -> mutex));
 
     del_event(state, client_id);
     add_event(state, client_id, EPOLLIN);
+    pthread_mutex_unlock(&(conn -> mutex));
 
     return 0;
 }
