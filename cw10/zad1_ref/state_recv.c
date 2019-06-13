@@ -30,19 +30,6 @@ initialize_handler_recv(handler_recv * handler) {
     return 0;
 }
 
-// Turns a sequence of num_bytes bytes into an integer.
-int
-deserialize(unsigned char * head, int * result, int num_bytes) {
-    int outcome = (int) head[0];
-    int i;
-    for (i = 1; i < num_bytes; i++) {
-        outcome <<= 8;
-        outcome |= *(head + i);
-    }
-    *result = outcome;
-    return 0;
-}
-
 int
 recv_receive(void * p_self, server_state * state, int client_id) {
     handler_recv * self = (handler_recv *) p_self;

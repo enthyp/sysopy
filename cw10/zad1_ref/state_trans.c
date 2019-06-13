@@ -30,17 +30,6 @@ initialize_handler_trans(handler_trans * handler) {
     return 0;
 }
 
-// Turns an integer into sequence of num_bytes bytes (disregards its actual size).
-int
-serialize(unsigned char * head, int to_serialize, int num_bytes) {
-    int i;
-    for (i = 0; i < num_bytes; i++) {
-        to_serialize >>= (i * 8);
-        *(head + num_bytes - i - 1) = (unsigned char) to_serialize;
-    }
-    return 0;
-}
-
 int
 trans_send(void * p_self, server_state * state, int client_id) {
     handler_trans * self = (handler_trans *) p_self;

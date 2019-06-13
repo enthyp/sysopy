@@ -19,4 +19,10 @@
 #define TASK 012
 #define PING 013
 
+// Turns an integer into sequence of num_bytes bytes (disregards its actual size).
+int serialize(unsigned char * head, int to_serialize, int num_bytes);
+
+// Turns a sequence of num_bytes bytes into an integer.
+int deserialize(unsigned char * head, int * result, int num_bytes);
+
 #endif // PROTOCOL_H
