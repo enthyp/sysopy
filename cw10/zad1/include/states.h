@@ -85,6 +85,9 @@ pinged(void * handler, server_state * s_state, int client_id, conn_state c_state
         case BUSY: {
             return ((handler_busy * )handler)->pinged;
         }
+        case TRANSMITTING: {
+            return ((handler_trans * )handler)->pinged;
+        }
         case PROCESSING: {
             return ((handler_proc * )handler)->pinged;
         }
@@ -106,6 +109,9 @@ ping_client(void * handler, server_state * s_state, int client_id, conn_state c_
         }
         case BUSY: {
             return ((handler_busy * )handler)->ping(handler, s_state, client_id);
+        }
+        case TRANSMITTING: {
+            return ((handler_trans * )handler)->ping(handler, s_state, client_id);
         }
         case PROCESSING: {
             return ((handler_proc * )handler)->ping(handler, s_state, client_id);
